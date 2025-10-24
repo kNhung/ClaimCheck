@@ -1,4 +1,4 @@
-from modules.llm import prompt_ollama
+from .llm import prompt_ollama
 
 judge_prompt = """
 Hướng dẫn

@@ -1,4 +1,4 @@
-from modules.llm import prompt_ollama
+from .llm import prompt_ollama
 
 plan_prompt = """Hướng dẫn
 Kiến thức hiện có chưa đủ để đánh giá tính đúng sai của Phát biểu (Claim).
