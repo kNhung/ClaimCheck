@@ -5,7 +5,7 @@ from datetime import datetime
 
 
 if __name__ == "__main__":
-    claim = "Chị Đẹp Concert diễn ra vào ngày 12/4/2025"
+    claim = "Ông Putin nói Nga sẽ phản ứng mạnh nếu bị Tomahawk tấn công"
     cutoff_date = "24-10-2025"  # DD-MM-YYYY
 
     start_ts = datetime.now()
