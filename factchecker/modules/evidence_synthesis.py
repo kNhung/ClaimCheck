@@ -1,31 +1,32 @@
-from modules.llm import prompt_ollama
+from .llm import prompt_ollama
 
 develop_prompt = """
-Instructions
-You just retrieved new Evidence. Now, analyze the Claim's veracity using the evidence. Always adhere to the following rules:
-Focus on developing new insights. Do not repeat larger parts from the Record. Do not restate the Claim.
-Write down your thoughts step-by-step. Whenever necessary, you may elaborate in more detail.
-Depending on the topic's complexity, invest one to three paragraphs. The fewer, the better.
-If you find that there is insufficient information to verify the Claim, explicitly state what information is missing.
-If you cite web sources, always refer to them by including their URL as a Markdown hyperlink.
-Use information only from the recorded evidence:
-Avoid inserting information that is not implied by the evidence. You may use commonsense knowledge, though.
+Hướng dẫn
+Bạn vừa thu thập được Bằng chứng mới. Hãy phân tích tính đúng/sai của Phát biểu dựa trên bằng chứng và tuân thủ các quy tắc sau:
+- Tập trung phát triển insight mới. Không lặp lại dài dòng nội dung từ Record. Không nhắc lại nguyên văn Claim.
+- Viết suy luận theo từng bước; khi cần có thể giải thích chi tiết.
+- Tùy độ phức tạp, viết khoảng 1–3 đoạn; càng ngắn gọn càng tốt.
+- Nếu thông tin chưa đủ để kết luận, nêu rõ dữ liệu nào còn thiếu.
+- Nếu trích nguồn web, dẫn link bằng Markdown (dùng URL gốc làm hyperlink).
+- Chỉ dùng thông tin có trong các bằng chứng đã ghi nhận; có thể dùng kiến thức thường thức ở mức hợp lý.
 
-If it is extremely necessary to retrieve more evidence, you can propose actions to the user. If not necessary, do not add anything else other than the reasoning. 
-Adhere to the following rules:
-The actions available are listed under Valid Actions, including a short description for each action. No other actions are possible at this moment.
-For each action, use the formatting as specified in Valid Actions.
-Propose as few actions as possible but as much as needed. Do not propose similar or previously used actions.
-Include all actions in a single Markdown code block at the end of your answer.
+Nếu thực sự cần thu thập thêm bằng chứng, bạn có thể đề xuất các hành động. Nếu không cần, chỉ đưa ra phần suy luận, không thêm gì khác.
+Tuân thủ:
+- Các hành động hợp lệ nằm trong phần Valid Actions (kèm mô tả ngắn). Không có hành động nào khác ngoài danh sách này.
+- Mỗi hành động phải theo đúng định dạng chỉ định ở Valid Actions.
+- Đề xuất ít nhưng đủ; không lặp lại hay trùng với các hành động đã có.
+- Đặt toàn bộ các hành động trong một khối mã (Markdown code block) duy nhất ở cuối câu trả lời.
+
+Lưu ý kỹ thuật: Giữ nguyên cú pháp chính xác khi in ra hành động, ví dụ web_search("...") và token NONE (không dịch).
 
 Valid Actions:
-geolocate: Determine the country where an image was taken by providing an image ID.
-reverse search: Perform a reverse image search on the web for similar images.
-web search: Run an open web search for related webpages.
-image search: Retrieve related images for a given query.
-NONE: Do not propose any actions.
+geolocate: Xác định quốc gia nơi ảnh được chụp bằng ID ảnh.
+reverse search: Tìm kiếm ảnh ngược trên web để tìm ảnh tương tự.
+web search: Tìm kiếm web mở cho các trang liên quan.
+image search: Tìm hình ảnh liên quan cho một truy vấn.
+NONE: Không đề xuất hành động nào.
 
-Examples:
+Ví dụ:
 geolocate(<image:k>)
 reverse_search(<image:k>)
 web_search("New Zealand Food Bill 2020")
