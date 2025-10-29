@@ -5,9 +5,12 @@ REPORT_PATH = None
 EVIDENCE_PATH = None
 
 def get_report_path(identifier):
-    """Returns the report path based on the identifier."""
-    base_dir = "../../reports/" + identifier
-    filename = "report.md"
+    """Returns the report path based on the identifier.
+
+    Identifier can be nested like "<ddmmyy-hhmm>/<claim_id>".
+    """
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../reports', identifier))
+    filename = 'report.md'
     return os.path.join(base_dir, filename)
 
 def init_report(claim, identifier):
