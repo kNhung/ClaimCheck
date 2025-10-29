@@ -42,3 +42,24 @@ python fact-check.py /path/to/json/file.json 5
 
 Replace `/path/to/json/file.json` with the actual path to your AVeriTeC JSON file and `5` with the number of records you want to process. You can find AVeriTeC JSON files [here](https://fever.ai/dataset/averitec.html).
 
+
+## Streamlit UI (Tiếng Việt)
+
+Bạn có thể chạy giao diện đơn giản để nhập claim, chọn ngày cắt (cut-off) và xem quá trình suy luận, bằng chứng, kết luận.
+
+### Chạy ứng dụng
+
+1) Cài dependencies (đã bao gồm Streamlit):
+```bash
+pip install -r requirements.txt
+```
+
+2) Chạy ứng dụng:
+```bash
+streamlit run app.py
+```
+
+3) Mở trình duyệt theo URL mà Streamlit hiển thị (thường là http://localhost:8501). Nhập claim, chọn ngày, và nhấn "Chạy kiểm chứng".
+
+Ứng dụng sẽ lưu báo cáo tại thư mục `reports/<timestamp>/` gồm `report.md`, `evidence.md`, `report.json` và thư mục `images/` nếu có.
+

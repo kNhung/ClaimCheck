@@ -2,9 +2,9 @@ import re
 import os
 import json
 import concurrent.futures
-from modules import planning, evidence_summarization, evidence_synthesis, evaluation
-from tools import web_search, web_scraper
-from report import report_writer
+from .modules import planning, evidence_summarization, evidence_synthesis, evaluation
+from .tools import web_search, web_scraper
+from .report import report_writer
 import fcntl
 
 RULES_PROMPT = """
