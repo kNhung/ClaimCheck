@@ -1,4 +1,5 @@
 import os
+import tempfile
 from datetime import date
 
 import streamlit as st
@@ -24,10 +25,24 @@ st.markdown(
 # --- Inputs ---
 with st.sidebar:
     st.header("Cấu hình")
-    claim = st.text_input("Câu claim", placeholder="Ví dụ: Ông Putin nói Nga sẽ phản ứng mạnh nếu bị Tomahawk tấn công")
     cutoff = st.date_input("Chọn thời gian (ngày)", value=date.today(), format="DD/MM/YYYY")
     max_actions = st.slider("Số hành động tối đa", min_value=1, max_value=5, value=2, help="Giới hạn số truy vấn tìm kiếm để chạy nhanh hơn.")
-    run_btn = st.button("Chạy kiểm chứng")
+
+# Centered main input
+_, col_center, _ = st.columns([1, 2, 1])
+with col_center:
+    claim = st.text_input(
+        "Câu claim",
+        placeholder="Ví dụ: Ông Putin nói Nga sẽ phản ứng mạnh nếu bị Tomahawk tấn công",
+    )
+    uploaded_image = st.file_uploader(
+        "Upload hình ảnh (tùy chọn)",
+        type=["png", "jpg", "jpeg", "gif", "webp"],
+        help="Upload hình ảnh để kiểm chứng vị trí địa lý hoặc tìm kiếm ngược",
+    )
+    if uploaded_image is not None:
+        st.image(uploaded_image, caption="Hình ảnh đã upload", use_container_width=True)
+    run_btn = st.button("Kiểm chứng")
 
 
 col_reason, col_evidence, col_verdict = st.columns([2, 2, 1])
@@ -45,15 +60,38 @@ if run_btn:
         st.error(f"Không thể import pipeline: {_import_error}")
         st.stop()
 
+    # Handle image upload
+    image_path = None
+    multimodal = False
+    if uploaded_image is not None:
+        multimodal = True
+        # Save uploaded image to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_image.name)[1]) as tmp_file:
+            tmp_file.write(uploaded_image.getbuffer())
+            image_path = tmp_file.name
+
     with st.status("Đang lập kế hoạch, thu thập bằng chứng và suy luận...", expanded=True) as status:
         try:
             status.write("Bắt đầu chạy pipeline...")
-            verdict, report_path = factcheck(claim.strip(), _format_date(cutoff), max_actions=max_actions)
+            verdict, report_path = factcheck(
+                claim.strip(), 
+                _format_date(cutoff), 
+                multimodal=multimodal,
+                image_path=image_path,
+                max_actions=max_actions
+            )
             status.update(label="Hoàn tất", state="complete")
         except Exception as e:
             status.update(label="Lỗi khi chạy pipeline", state="error")
             st.exception(e)
             st.stop()
+        finally:
+            # Clean up temporary image file
+            if image_path and os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                except Exception:
+                    pass  # Ignore cleanup errors
 
     report_dir = os.path.dirname(report_path)
     report_md_path = os.path.join(report_dir, "report.md")

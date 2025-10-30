@@ -241,5 +241,5 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal = False, image_path = None, max_actions=10):
+def factcheck(claim, date, identifier=None, multimodal = False, image_path = None, max_actions=2):
     return FactChecker(claim, date, identifier, multimodal, image_path, max_actions).run()
