@@ -1,12 +1,12 @@
 """Minimal runner for the factchecker with simple wall-clock timing."""
-from factchecker import factcheck
+from factchecker.factchecker import factcheck
 from time import perf_counter
 from datetime import datetime
 
 
 if __name__ == "__main__":
-    claim = "Ông Putin nói Nga sẽ phản ứng mạnh nếu bị Tomahawk tấn công"
-    cutoff_date = "24-10-2025"  # DD-MM-YYYY
+    claim = "Nguyễn Phú Trọng sinh năm 1945"
+    cutoff_date = "31-10-2025"  # DD-MM-YYYY
 
     start_ts = datetime.now()
     start = perf_counter()

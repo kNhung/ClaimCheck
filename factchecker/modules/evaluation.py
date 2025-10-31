@@ -1,13 +1,11 @@
 from .llm import prompt_ollama
 
 judge_prompt = """
-Hướng dẫn
-Xác định tính đúng/sai của Phát biểu theo các bước:
-1) Tóm tắt ngắn gọn (tối đa một đoạn) các ý chính từ quá trình kiểm chứng (xem Record).
-2) Viết một đoạn giải thích lựa chọn nào trong Decision Options là phù hợp nhất. Ở cuối đoạn, chèn đúng một nhãn lựa chọn trong dấu backticks như `this`.
-
-Lưu ý kỹ thuật:
-- Các Decision Options được giữ nguyên tiếng Anh. Hãy đảm bảo đưa đúng một nhãn nằm trong danh sách này và đặt trong backticks.
+Instructions
+Determine the Claim's veracity by following these steps:
+1. Briefly summarize the key insights from the fact-check (see Record) in at most one paragraph.
+2. Write one paragraph about which one of the Decision Options applies best. Include the most appropriate decision option at the end and enclose it in backticks
+like `this`.
 
 Decision Options:
 {options}
@@ -17,12 +15,15 @@ Rules:
 
 Record:
 {record}
+
+Important: Write your final answer in Vietnamese.
+
 Your Judgement:
 """
 
 verdict_extraction_prompt = """
-Hướng dẫn
-Bạn là người kiểm chứng. Nhiệm vụ là trích xuất phán quyết (verdict) từ phần kết luận. Chỉ trả về một nhãn duy nhất, nằm trong các lựa chọn sau:
+Instructions
+You are a fact-checker, and your task is to extract the verdict from the fact-check conclusion. Only return one verdict. The verdict should be one of the following options:
 
 Decision Options:
 {options}
@@ -32,6 +33,8 @@ Rules:
 
 Conclusion:
 {conclusion}
+
+
 Extracted Verdict:
 """
 

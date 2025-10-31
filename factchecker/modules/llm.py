@@ -15,10 +15,19 @@ def prompt_gpt(prompt, model='o4-mini-2025-04-16'):
     )
     return response.choices[0].message.content
 
-def prompt_ollama(prompt, model='qwen2.5:0.5b', think=True):
+#def prompt_ollama(prompt, model='qwen2.5:0.5b', think=True):
+#def prompt_ollama(prompt, model='qwen3:0.6b', think=True):
 #def prompt_ollama(prompt, model='jdevasier/qwen2.5-fact-verification', think=True):
 #def prompt_ollama(prompt, model='qwen3:4b', think=True):
-#def prompt_ollama(prompt, model='qwen3:1.7b', think=True):
+def prompt_ollama(prompt, model='qwen3:1.7b', think=True):
+#def prompt_ollama(prompt, model='gpt-oss:20b-cloud', think=True):
+#def prompt_ollama(prompt, model='deepseek-r1:1.5b', think=True):
+
+    client = ollama.Client(
+        host="https://ollama.com",
+        headers={'Authorization': 'Bearer ' + os.environ.get('OLLAMA_API_KEY')}
+    )
+    
     messages = []
     if not think:
         messages.append({'role': 'system', 'content': '/no_think'})
@@ -28,6 +37,7 @@ def prompt_ollama(prompt, model='qwen2.5:0.5b', think=True):
     })
 
     response = ollama.chat(model=model, messages=messages)
+    #response = client.chat(model=model, messages=messages)
 
     output = response['message']['content']
 

@@ -9,22 +9,22 @@ import fcntl
 
 RULES_PROMPT = """
 Supported
-- Sử dụng khi phát biểu được hậu thuẫn trực tiếp và rõ ràng bởi bằng chứng mạnh, đáng tin cậy. Một vài điểm chưa chắc chắn/thiếu chi tiết nhỏ không loại trừ nếu ý chính đã được chứng minh tốt.
-- Dùng Supported nếu tổng thể bằng chứng nghiêng về việc phát biểu là đúng, dù vẫn có vài lưu ý hoặc chưa xác nhận đủ mọi chi tiết.
+- The claim is directly and clearly backed by strong, credible evidence. Minor uncertainty or lack of detail does not disqualify a claim from being Supported if the main point is well-evidenced.
+- Use Supported if the overall weight of evidence points to the claim being true, even if there are minor caveats or not every detail is confirmed.
 
 Refuted
-- Sử dụng khi phát biểu bị bác bỏ bởi bằng chứng mạnh, đáng tin cậy, hoặc cho thấy yếu tố bịa đặt/đánh lừa/sai ở ý chính.
-- Dùng Refuted nếu các yếu tố cốt lõi bị chứng minh là sai, kể cả khi một vài chi tiết nhỏ còn mơ hồ.
-- Việc không có nguồn đáng tin nào ủng hộ phát biểu không phải là "Not Enough Evidence" — đó là Refuted.
+- The claim is contradicted by strong, credible evidence, or is shown to be fabricated, deceptive, or false in its main point.
+- Use Refuted if the central elements of the claim are disproven, even if some minor details are unclear.
+- Lack of any credible sources supporting the claim does not mean "Not Enough Evidence" - it means the claim is Refuted.
 
 Conflicting Evidence/Cherrypicking
-- Chỉ dùng khi có các nguồn uy tín đưa ra thông tin mâu thuẫn trực tiếp và không thể dung hòa về ý chính, và không thể phân xử rõ sau khi phân tích kỹ.
-- KHÔNG dùng cho bất đồng nhỏ, bằng chứng chưa đầy đủ, hoặc khi phần lớn bằng chứng nghiêng về một phía nhưng có vài nguồn ý kiến trái chiều nhỏ.
+- Only use this if there are reputable sources that directly and irreconcilably contradict each other about the main point of the claim, and no clear resolution is possible after careful analysis.
+- Do NOT use this for minor disagreements, incomplete evidence, or if most evidence points one way but a few sources disagree.
 
 Not Enough Evidence
-- Chỉ dùng khi thực sự không có bằng chứng liên quan sau khi đã tìm kiếm kỹ, hoặc phát biểu quá mơ hồ/nhập nhằng để đánh giá.
-- KHÔNG dùng khi vẫn có một số bằng chứng (dù yếu), hoặc khi phát biểu khá rõ nhưng không xác nhận được mọi chi tiết.
-- Đây là lựa chọn sau cùng.
+- Only use this if there is genuinely no relevant evidence available after a thorough search, or if the claim is too vague or ambiguous to evaluate.
+- Do NOT use this if there is some evidence, even if it is weak, or if the claim is mostly clear but not every detail is confirmed.
+- This is a last-resort option only.
 """
 
 class FactChecker:
