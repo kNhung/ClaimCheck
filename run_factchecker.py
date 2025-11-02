@@ -5,7 +5,7 @@ from datetime import datetime
 
 
 if __name__ == "__main__":
-    claim = "Nguyễn Phú Trọng sinh năm 1945"
+    claim = "Thủ tướng chính phủ Việt Nam hiện tại là ông Phạm Minh Chính"
     cutoff_date = "31-10-2025"  # DD-MM-YYYY
 
     start_ts = datetime.now()

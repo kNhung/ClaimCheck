@@ -13,18 +13,15 @@ Supported
 - Use Supported if the overall weight of evidence points to the claim being true, even if there are minor caveats or not every detail is confirmed.
 
 Refuted
-- The claim is contradicted by strong, credible evidence, or is shown to be fabricated, deceptive, or false in its main point.
-- Use Refuted if the central elements of the claim are disproven, even if some minor details are unclear.
-- Lack of any credible sources supporting the claim does not mean "Not Enough Evidence" - it means the claim is Refuted.
-
-Conflicting Evidence/Cherrypicking
-- Only use this if there are reputable sources that directly and irreconcilably contradict each other about the main point of the claim, and no clear resolution is possible after careful analysis.
-- Do NOT use this for minor disagreements, incomplete evidence, or if most evidence points one way but a few sources disagree.
+- The claim is contradicted by strong, credible evidence, or is shown to be false, misleading, or fabricated.
+- Use Refuted if the main point of the claim is disproven, even if some small details remain unclear.
+- IMPORTANT: Lack of evidence supporting the claim is **not enough** to call it Refuted — only use Refuted when there is clear counter-evidence.
 
 Not Enough Evidence
-- Only use this if there is genuinely no relevant evidence available after a thorough search, or if the claim is too vague or ambiguous to evaluate.
-- Do NOT use this if there is some evidence, even if it is weak, or if the claim is mostly clear but not every detail is confirmed.
-- This is a last-resort option only.
+- Use this if there is genuinely no relevant or sufficient evidence to verify or falsify the claim.
+- Also use this if the claim is too vague, ambiguous, or unverifiable with available data.
+- Do NOT use this if there is clear evidence for or against the claim.
+- This should be the default choice only when uncertainty remains after thorough checking.
 """
 
 class FactChecker:
@@ -186,7 +183,7 @@ class FactChecker:
 
             iterations += 1
 
-        allowed_verdicts = {"Supported", "Refuted", "Conflicting Evidence/Cherrypicking", "Not Enough Evidence"}
+        allowed_verdicts = {"Supported", "Refuted", "Not Enough Evidence"}
         max_judge_tries = 3
         judge_tries = 0
         pred_verdict = ''
@@ -194,7 +191,7 @@ class FactChecker:
         while judge_tries < max_judge_tries:
             verdict = evaluation.judge(
                 record=self.get_report(),
-                decision_options="Supported|Refuted|Conflicting Evidence/Cherrypicking|Not Enough Evidence",
+                decision_options="Supported|Refuted|Not Enough Evidence",
                 rules=rules,
                 think=None  # Replace with think_judge if defined
             )
@@ -223,7 +220,7 @@ class FactChecker:
                 # If no options found, use extract_verdict from judge.py
                 print("No decision options found in verdict, using extract_verdict from judge.py...")
                 try:
-                    extracted = evaluation.extract_verdict(verdict, "Supported|Refuted|Conflicting Evidence/Cherrypicking|Not Enough Evidence", rules)
+                    extracted = evaluation.extract_verdict(verdict, "Supported|Refuted|Not Enough Evidence", rules)
                     extracted_verdict = re.search(r'`(.*?)`', extracted, re.DOTALL)
                     pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else extracted.strip()
                     print(f"extract_verdict returned: {pred_verdict}")
