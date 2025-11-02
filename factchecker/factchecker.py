@@ -24,6 +24,17 @@ Not Enough Evidence
 - This should be the default choice only when uncertainty remains after thorough checking.
 """
 
+LABEL_MAP = {
+    # Numeric to text
+    0: "Supported",
+    1: "Refuted", 
+    2: "Not Enough Evidence",
+    # Text to numeric
+    "Supported": 0,
+    "Refuted": 1,
+    "Not Enough Evidence": 2
+}
+
 class FactChecker:
     def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2):
         self.claim = claim
@@ -238,5 +249,40 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal = False, image_path = None, max_actions=2):
-    return FactChecker(claim, date, identifier, multimodal, image_path, max_actions).run()
+def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None):
+    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions)
+    verdict, report_path = checker.run()
+    
+    try:
+        # Get base directory from report path
+        base_dir = os.path.dirname(os.path.dirname(report_path))
+        csv_path = os.path.join(base_dir, 'detailed_results.csv')
+        
+        # Get content from report
+        evidence, reasoning, verdict_text, justification = report_writer.get_report_content()
+        
+        # Convert numeric expected_label to text if needed
+        if expected_label is not None and isinstance(expected_label, (int, float)):
+            expected_label = LABEL_MAP.get(int(expected_label))
+            
+        # Convert verdict to numeric for metrics calculation
+        numeric_verdict = LABEL_MAP.get(verdict)
+        
+        # Write to CSV with both text and numeric verdicts
+        report_writer.write_detailed_csv(
+            claim=claim,
+            date=date,
+            evidence=evidence,
+            reasoning=reasoning,
+            verdict=verdict,
+            numeric_verdict=numeric_verdict,
+            justification=justification,
+            report_path=report_path,
+            csv_path=csv_path,
+            expected_label=expected_label
+        )
+        print(f"Detailed results written to: {csv_path}")
+    except Exception as e:
+        print(f"Error writing detailed results to CSV: {e}")
+    
+    return verdict, report_path
