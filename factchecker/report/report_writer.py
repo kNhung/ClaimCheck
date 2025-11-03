@@ -77,113 +77,132 @@ def append_justification(justification):
     except Exception as e:
         print(f"Error appending justification: {e}")
 
-def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None):
-    """Writes detailed fact-checking results to a CSV file."""
+def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None):
+    """Writes detailed fact-checking results to a CSV file with fixed columns.
+    Ensures a sample is only written once (skip if same report_path or id already present)."""
     try:
-        # mapping text -> numeric
         LABEL_TO_NUM = {
-            "Supported": 0,
-            "Refuted": 1,
-            "Not Enough Evidence": 2
+            "supported": 0,
+            "refuted": 1,
+            "not enough evidence": 2
         }
 
-        # Normalize numeric_verdict: if not provided but verdict text exists, map it
-        if numeric_verdict is None:
-            if isinstance(verdict, (int, float)):
-                numeric_verdict = int(verdict)
-            elif isinstance(verdict, str):
-                numeric_verdict = LABEL_TO_NUM.get(verdict.strip(), None)
+        def normalize_label_to_num(val):
+            if val is None:
+                return None
+            if isinstance(val, (int, float)) and not isinstance(val, bool):
+                return int(val)
+            s = str(val).strip()
+            if not s:
+                return None
+            if s.isdigit():
+                return int(s)
+            s_low = s.lower()
+            for key in LABEL_TO_NUM:
+                if key in s_low:
+                    return LABEL_TO_NUM[key]
+            return None
 
-        # Normalize expected_label into numeric label for metrics
-        label_num = None
-        if expected_label is not None:
-            if isinstance(expected_label, (int, float)):
-                label_num = int(expected_label)
-            else:
-                # try parse integer string first, else map text
-                try:
-                    label_num = int(str(expected_label).strip())
-                except Exception:
-                    label_num = LABEL_TO_NUM.get(str(expected_label).strip(), None)
+        pred_num = normalize_label_to_num(numeric_verdict) if numeric_verdict is not None else normalize_label_to_num(verdict)
+        label_num = normalize_label_to_num(expected_label)
 
-        # Create header if file doesn't exist
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+
+        # If file exists, avoid duplicates by checking report_path or id
+        if os.path.exists(csv_path):
+            try:
+                df_existing = pd.read_csv(csv_path, dtype=str)
+                # check by report_path
+                if report_path and 'report_path' in df_existing.columns:
+                    if (df_existing['report_path'].astype(str) == str(report_path)).any():
+                        print(f"Skipping write: report_path already present in {csv_path}")
+                        return
+                # check by id
+                if claim_id is not None and 'id' in df_existing.columns:
+                    if (df_existing['id'].astype(str) == str(claim_id)).any():
+                        print(f"Skipping write: id {claim_id} already present in {csv_path}")
+                        return
+            except Exception:
+                # if reading fails, continue to append
+                pass
+
         file_exists = os.path.isfile(csv_path)
-        
         with open(csv_path, 'a', newline='', encoding='utf-8') as f:
             fieldnames = [
-                'claim', 
-                'date',
+                'id',
+                'claim',
                 'evidence',
-                'reasoning', 
+                'reasoning',
                 'verdict',
-                'numeric_verdict',
-                'justification',
-                'report_path',
+                'predicted_label',
+                'expected_label',
+                'compare',
                 'timestamp',
-                'label'  # numeric ground-truth label
+                'report_path'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
-            
             if not file_exists:
                 writer.writeheader()
-            
-            # Clean up text fields
-            evidence = ' '.join(evidence.strip().split()) if evidence else ""
-            reasoning = ' '.join(reasoning.strip().split()) if reasoning else ""
-            justification = ' '.join(justification.strip().split()) if justification else ''
-            
+
+            evidence_clean = ' '.join(evidence.strip().split()) if evidence else ""
+            reasoning_clean = ' '.join(reasoning.strip().split()) if reasoning else ""
+
             writer.writerow({
+                'id': claim_id if claim_id is not None else "",
                 'claim': claim,
-                'date': date,
-                'evidence': evidence,
-                'reasoning': reasoning,
+                'evidence': evidence_clean,
+                'reasoning': reasoning_clean,
                 'verdict': verdict,
-                'numeric_verdict': numeric_verdict,
-                'justification': justification,
-                'report_path': report_path,
+                'predicted_label': pred_num if pred_num is not None else "",
+                'expected_label': label_num if label_num is not None else "",
+                'compare': 1 if (label_num is not None and pred_num is not None and label_num == pred_num) else 0,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'label': label_num
+                'report_path': report_path or ""
             })
-            
-        # Calculate metrics after each write if we have numeric labels
-        if label_num is not None:
-            metrics = calculate_metrics(csv_path)
-            if metrics:
-                print("\nEvaluation Metrics:")
-                print(f"Accuracy: {metrics['accuracy']:.4f}")
-                print(f"Precision: {metrics['precision']:.4f}")
-                print(f"Recall: {metrics['recall']:.4f}")
-                print(f"F1-score: {metrics['f1']:.4f}\n")
-                
     except Exception as e:
         print(f"Error writing to CSV: {e}")
 
 def calculate_metrics(csv_path):
     """Calculate metrics using numeric labels and write them to metrics.txt"""
     try:
+        print(f"Reading CSV from: {csv_path}")
         df = pd.read_csv(csv_path)
-        # Accept text or numeric labels by mapping text -> numeric if necessary
+        print(f"CSV columns found: {df.columns.tolist()}")
+        print(f"Number of rows: {len(df)}")
+        
         LABEL_TO_NUM = {
-            "Supported": 0,
-            "Refuted": 1,
-            "Not Enough Evidence": 2
+            "supported": 0,
+            "refuted": 1,
+            "not enough evidence": 2
         }
 
-        if 'numeric_verdict' not in df.columns or 'label' not in df.columns:
-            print("Error: CSV must contain 'numeric_verdict' and 'label' columns")
+        def normalize_label_to_num(val):
+            if pd.isna(val):
+                return None
+            try:
+                if isinstance(val, (int, float)) and not isinstance(val, bool):
+                    return int(val)
+            except Exception:
+                pass
+            s = str(val).strip()
+            if not s:
+                return None
+            if s.isdigit():
+                return int(s)
+            s_low = s.lower()
+            for key in LABEL_TO_NUM:
+                if key in s_low:
+                    return LABEL_TO_NUM[key]
+            return LABEL_TO_NUM.get(s_low, None)
+
+        if 'predicted_label' not in df.columns or 'expected_label' not in df.columns:
+            print("Error: CSV must contain 'predicted_label' and 'expected_label' columns")
             return None
 
-        # Map potential text in 'label' to numeric
-        if not pd.api.types.is_integer_dtype(df['label']):
-            df['label_mapped'] = df['label'].map(lambda v: LABEL_TO_NUM.get(str(v).strip(), None) if pd.notna(v) else None)
-        else:
-            df['label_mapped'] = df['label'].astype('Int64')
-
-        # Ensure numeric_verdict column is numeric (map text if needed)
-        if not pd.api.types.is_integer_dtype(df['numeric_verdict']):
-            df['pred_mapped'] = df['numeric_verdict'].map(lambda v: int(v) if pd.notna(v) and str(v).strip().isdigit() else LABEL_TO_NUM.get(str(v).strip(), None) if pd.notna(v) else None)
-        else:
-            df['pred_mapped'] = df['numeric_verdict'].astype('Int64')
+        # Apply normalization
+        df['pred_mapped'] = df['predicted_label'].apply(normalize_label_to_num)
+        df['label_mapped'] = df['expected_label'].apply(normalize_label_to_num)
 
         # Drop rows missing either label or prediction
         clean = df.dropna(subset=['label_mapped', 'pred_mapped'])
@@ -207,6 +226,7 @@ def calculate_metrics(csv_path):
         # Write metrics to metrics.txt next to the csv file
         try:
             metrics_path = os.path.join(os.path.dirname(csv_path), 'metrics.txt')
+            print(f"Writing metrics to: {metrics_path}")
             with open(metrics_path, 'w', encoding='utf-8') as mf:
                 mf.write(f"Calculated: {datetime.now().isoformat()}\n")
                 mf.write(f"Rows evaluated: {len(clean)}\n")
@@ -214,13 +234,17 @@ def calculate_metrics(csv_path):
                 mf.write(f"Precision (weighted): {metrics['precision']:.4f}\n")
                 mf.write(f"Recall (weighted): {metrics['recall']:.4f}\n")
                 mf.write(f"F1-score (weighted): {metrics['f1']:.4f}\n")
+            print(f"Successfully wrote metrics to {metrics_path}")
         except Exception as e:
             print(f"Error writing metrics file: {e}")
+            raise
         
         return metrics
         
     except Exception as e:
         print(f"Error calculating metrics: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def get_report_content():
