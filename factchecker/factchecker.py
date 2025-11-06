@@ -94,7 +94,7 @@ class FactChecker:
             if m:
                 action, query = m.groups()
                 action_entry = {
-                    "action": action + "_search",
+                    "action": f"{action}_search",
                     "query": query,
                     "results": None
                 }
@@ -105,11 +105,19 @@ class FactChecker:
 
                 if action == 'web':
                     self.report["actions"][identifier] = action_entry
-                    urls, snippets = web_search.web_search(query, self.date, top_k=3)
-
-                    # Default with snippets from web_search
-                    self.report["actions"][identifier]["results"] = {url: {"snippet": snippet, 'url':url, 'summary': None} for url, snippet in zip(urls, snippets)}
+                    results = web_search.web_search(query, self.date, top_k=3)
+                    self.report["actions"][identifier]["results"] = {
+                        r["link"]: {
+                            "snippet": r.get("snippet", ""), 
+                            "url": r["link"], 
+                            "title": r["title"],
+                            "summary": None
+                        }
+                        for r in results
+                    }
                     self.save_report_json()
+                    
+                    urls = [r["link"] for r in results]
 
                     def process_result(result):
                         scraped_content = web_scraper.scrape_url_content(result)
@@ -119,7 +127,7 @@ class FactChecker:
                             print(f"Skipping summary for evidence: {result}")
                             return None
 
-                        print(f"Web search result: {result}, Summary: {summary}")
+                        print(f"Web search result: {result}. \nSummary: {summary}")
                         report_writer.append_raw(f"web_search('{query}') results: {result}")
                         report_writer.append_evidence(f"web_search('{query}') summary: {summary}")
 
@@ -139,7 +147,7 @@ class FactChecker:
             actions = "All"
         else:
             actions = ["web_search"]#, "image_search"]
-
+            
         actions = planning.plan(self.claim, record=self.get_report(), actions=actions)
         report_writer.append_iteration_actions(1, actions)
         print(f"Proposed actions for claim '{self.claim}':\n{actions}")

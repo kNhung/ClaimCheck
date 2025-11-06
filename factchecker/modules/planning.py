@@ -1,15 +1,23 @@
 from .llm import prompt_ollama
 
+
 plan_prompt = """
 Nhiệm vụ: Lên kế hoạch tìm thêm bằng chứng để kiểm chứng phát biểu (Claim).
 
-Chỉ được dùng các hành động sau (đúng cú pháp):
-- web_search("..."): tìm trang liên quan.
-- NONE: không cần hành động.
+Bạn CHỈ ĐƯỢC phép in ra danh sách các hành động theo đúng cú pháp bên dưới.
+Mỗi hành động phải được in trong cùng một khối mã (```) duy nhất.
+Không được giải thích, không được in văn bản tự nhiên, không thêm mô tả.
+
+Hành động hợp lệ:
+{valid_actions}
+
+Ví dụ:
+{examples}
 
 Quy tắc:
-- Đề xuất đủ hành động, không trùng lặp, không ngoài danh sách.
-- In các hành động trong một khối mã (```) duy nhất ở cuối.
+- Luôn luôn thực hiện web_search("{claim}")
+- Không thêm văn bản khác ngoài khối mã hành động.
+- Không được thêm link thủ công hoặc hướng dẫn.
 
 Record:
 {record}
@@ -23,7 +31,6 @@ Phân tách phát biểu dưới đây thành 1-3 **tiểu phát biểu** có th
 
 Claim: {claim}
 Your Sub-Claims:
-
 """
 
 def plan(claim, record="", examples="", actions=None, think=True):
@@ -37,34 +44,17 @@ def plan(claim, record="", examples="", actions=None, think=True):
         }
     }
     
-    decompose_text = decompose_prompt.format(claim=claim)
-    subclaims_response = prompt_ollama(decompose_text, think=think)
-    subclaims = [] 
-    
-    for line in subclaims_response.splitlines():
-        line = line.strip()
-        if line:
-            subclaims.append(line)
-    
-    if not subclaims:
-        subclaims = [claim]
-        
     if not actions:
         actions = ["web_search"]
         
     valid_actions = "\n".join([f"{a}: {action_definitions[a]['desc']}" for a in actions])
     examples = "\n".join([f"{action_definitions[a]['example']}" for a in actions])
     
-    all_actions = []
-
-    for sub in subclaims:
-        prompt = plan_prompt.format(
-            valid_actions=valid_actions, 
-            examples=examples,
-            record=record,
-            claim=sub
-        )
-        response = prompt_ollama(prompt, think=think)
-        all_actions.extend(response.splitlines())
-    return "\n".join(all_actions)
-
+    prompt = plan_prompt.format( 
+        valid_actions=valid_actions, 
+        examples=examples, 
+        record=record, 
+        claim=claim,
+    ) 
+    response = prompt_ollama(prompt, think=think) 
+    return response

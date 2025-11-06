@@ -28,47 +28,45 @@ def web_search(query, date, top_k=3, **kwargs):
     # Format the date to the required format
     end_date = datetime.strptime(date, "%d-%m-%Y").strftime('%d/%m/%Y')
 
-    # Serper API endpoint
-    url = "https://google.serper.dev/search"
+    # Đọc API key và CX từ biến môi trường
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    google_cx = os.getenv("GOOGLE_CX")
 
-    # Prepare the payload
-    payload = json.dumps({
-        "q": query,
-        "num": top_k,
-        "tbs": f"cdr:1,cd_min:1/1/1900,cd_max:{end_date}"
-    })
-
-    # Read API key from environment (recommended: put it in a .env file as SERPER_API_KEY)
-    api_key = os.getenv('SERPER_API_KEY')
-    if not api_key:
+    if not google_api_key or not google_cx:
         raise RuntimeError(
-            "Missing SERPER_API_KEY. Set it as an environment variable or in a .env file."
+            "Missing GOOGLE_API_KEY or GOOGLE_CX. "
+            "Set them as environment variables or in a .env file."
         )
 
-    headers = {
-        'X-API-KEY': api_key,
-        'Content-Type': 'application/json'
+    # Google Custom Search endpoint
+    url = "https://www.googleapis.com/customsearch/v1"
+
+    # Tạo payload query
+    params = {
+        "key": google_api_key,
+        "cx": google_cx,
+        "q": query,
+        "num": min(top_k, 10),  # Google cho phép tối đa 10 mỗi lần
+        "lr": "lang_vi",        # Ưu tiên tiếng Việt
+        "safe": "active"        # Ẩn nội dung không an toàn
     }
 
-    # Make the POST request to the Serper API
-    response = requests.request("POST", url, headers=headers, data=payload)
+    # Gửi request
+    response = requests.get(url, params=params)
 
-    # Check if the request was successful
-    if response.status_code == 200:
-        results = response.json()
-        
-        # Extract URLs and snippets from the organic results
-        urls = []
-        snippets = []
-        
-        for item in results.get("organic", []):
-            if len(urls) >= top_k:
-                break
-            url = item.get("link", "")
-            if url.endswith("pdf"):
-                continue
-            urls.append(url)  # Get URL, default to empty string if missing
-            snippets.append(item.get("snippet", ""))  # Get snippet, default to empty string if missing
-        return urls, snippets
-    else:
-        raise Exception(f"Failed to fetch search results. Status code: {response.status_code}, Response: {response.text}")
+    # Kiểm tra lỗi
+    if response.status_code != 200:
+        raise RuntimeError(f"Google API error ({response.status_code}): {response.text}")
+
+    # Parse kết quả JSON
+    data = response.json()
+
+    # Lấy danh sách kết quả gọn gàng
+    results = []
+    for item in data.get("items", []):
+        results.append({
+            "title": item.get("title"),
+            "link": item.get("link"),
+            "snippet": item.get("snippet")
+        })
+    return results
