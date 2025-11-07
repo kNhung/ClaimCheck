@@ -9,19 +9,18 @@ import fcntl
 
 RULES_PROMPT = """
 Supported
-- The claim is directly and clearly backed by strong, credible evidence. Minor uncertainty or lack of detail does not disqualify a claim from being Supported if the main point is well-evidenced.
-- Use Supported if the overall weight of evidence points to the claim being true, even if there are minor caveats or not every detail is confirmed.
+- Có bằng chứng rõ ràng, trực tiếp và đáng tin cậy ủng hộ yêu cầu.
+- Dùng khi đa số bằng chứng độc lập chỉ ra rằng yêu cầu là đúng, dù một vài chi tiết nhỏ chưa được xác nhận.
 
 Refuted
-- The claim is contradicted by strong, credible evidence, or is shown to be false, misleading, or fabricated.
-- Use Refuted if the main point of the claim is disproven, even if some small details remain unclear.
-- IMPORTANT: Lack of evidence supporting the claim is **not enough** to call it Refuted — only use Refuted when there is clear counter-evidence.
+- Có bằng chứng đáng tin cậy bác bỏ hoặc mâu thuẫn trực tiếp với yêu cầu.
+- Dùng khi phần chính của yêu cầu bị chứng minh sai hoặc không đúng sự thật.
+- KHÔNG dùng nếu chỉ thiếu bằng chứng — chỉ dùng khi có bằng chứng phản đối rõ ràng.
 
 Not Enough Evidence
-- Use this if there is genuinely no relevant or sufficient evidence to verify or falsify the claim.
-- Also use this if the claim is too vague, ambiguous, or unverifiable with available data.
-- Do NOT use this if there is clear evidence for or against the claim.
-- This should be the default choice only when uncertainty remains after thorough checking.
+- Dùng khi không có đủ bằng chứng để xác nhận hoặc bác bỏ yêu cầu.
+- Cũng dùng nếu yêu cầu quá mơ hồ hoặc không thể kiểm chứng bằng dữ liệu hiện có.
+- KHÔNG dùng nếu đã có bằng chứng rõ ràng ủng hộ hoặc phản đối.
 """
 
 LABEL_MAP = {
@@ -36,7 +35,7 @@ LABEL_MAP = {
 }
 
 class FactChecker:
-    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2):
+    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, key_number=1):
         self.claim = claim
         self.date = date
         self.multimodal = multimodal if not (multimodal and image_path is None) else False
@@ -61,6 +60,7 @@ class FactChecker:
             "report_path": self.report_path
         }
         self.max_actions = max_actions
+        self.key_number = key_number
 
         # Save initial JSON report
         self.save_report_json()
@@ -110,7 +110,13 @@ class FactChecker:
 
                     def process_result(result):
                         scraped_content = web_scraper.scrape_url_content(result)
-                        summary = evidence_summarization.summarize(self.claim, scraped_content, result, record=self.get_report())
+                        summary = evidence_summarization.summarize(
+                            self.claim,
+                            scraped_content,
+                            result,
+                            record=self.get_report(),
+                            key_number=self.key_number,
+                        )
 
                         if "NONE" in summary:
                             print(f"Skipping summary for evidence: {result}")
@@ -137,7 +143,12 @@ class FactChecker:
         else:
             actions = ["web_search"]#, "image_search"]
 
-        actions = planning.plan(self.claim, record=self.get_report(), actions=actions)
+        actions = planning.plan(
+            self.claim,
+            record=self.get_report(),
+            actions=actions,
+            key_number=self.key_number,
+        )
         report_writer.append_iteration_actions(1, actions)
         print(f"Proposed actions for claim '{self.claim}':\n{actions}")
 
@@ -145,7 +156,7 @@ class FactChecker:
         print(f"Extracted action lines: {action_lines}")
 
         # Filter out invalid or empty action lines using regex
-        action_lines = [line for line in action_lines if re.match(r'(\w+)_search\("([^"]+)"\)', line, re.IGNORECASE)]
+        action_lines = [line for line in action_lines if re.match(r'^[^\w]*([\w-]+)_search\("([^"]+)"\)', line, re.IGNORECASE)]
         print(f"Filtered valid action lines: {action_lines}")
         print(f"Total action lines: {len(action_lines)}")
         print(f"Max actions allowed: {self.max_actions}")
@@ -168,7 +179,10 @@ class FactChecker:
         iterations = 0
         seen_action_lines = set(action_lines)
         while iterations <= 2:
-            reasoning = evidence_synthesis.develop(record=self.get_report())
+            reasoning = evidence_synthesis.develop(
+                record=self.get_report(),
+                key_number=self.key_number,
+            )
 
             print(f"Developed reasoning:\n{reasoning}")
             report_writer.append_reasoning(reasoning)
@@ -204,41 +218,63 @@ class FactChecker:
                 record=self.get_report(),
                 decision_options="Supported|Refuted|Not Enough Evidence",
                 rules=rules,
-                think=None  # Replace with think_judge if defined
+                think=None,  # Replace with think_judge if defined
+                key_number=self.key_number,
             )
             print(f"Judged verdict (try {judge_tries+1}):\n{verdict}")
             extracted_verdict = re.search(r'`(.*?)`', verdict, re.DOTALL)
             pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else ''
+
+            vi_to_en = {
+                "có căn cứ": "Supported",
+                "được hỗ trợ": "Supported",
+                "được chứng minh": "Supported",
+                "bị bác bỏ": "Refuted",
+                "sai lệch": "Refuted",
+                "không đủ bằng chứng": "Not Enough Evidence",
+                "chưa đủ bằng chứng": "Not Enough Evidence",
+                "thiếu chứng cứ": "Not Enough Evidence"
+            }
+
+            if pred_verdict.lower() in vi_to_en:
+                pred_verdict = vi_to_en[pred_verdict.lower()]
+
             if pred_verdict in allowed_verdicts:
                 break
             judge_tries += 1
 
         # If extraction failed after max tries, find the most frequent decision option in the verdict text
         if pred_verdict not in allowed_verdicts:
-            print("Original extraction failed, falling back to most frequent decision option...")
-            option_counts = {}
-            for option in allowed_verdicts:
-                # Count occurrences of each decision option in the verdict text
-                count = verdict.lower().count(option.lower())
-                if count > 0:
-                    option_counts[option] = count
+            # print("Original extraction failed, falling back to most frequent decision option...")
+            # option_counts = {}
+            # for option in allowed_verdicts:
+            #     # Count occurrences of each decision option in the verdict text
+            #     count = verdict.lower().count(option.lower())
+            #     if count > 0:
+            #         option_counts[option] = count
 
-            if option_counts:
-                # Use the most frequent option
-                pred_verdict = max(option_counts, key=option_counts.get)
-                print(f"Fallback verdict selected: {pred_verdict} (appeared {option_counts[pred_verdict]} times)")
-            else:
-                # If no options found, use extract_verdict from judge.py
-                print("No decision options found in verdict, using extract_verdict from judge.py...")
-                try:
-                    extracted = evaluation.extract_verdict(verdict, "Supported|Refuted|Not Enough Evidence", rules)
-                    extracted_verdict = re.search(r'`(.*?)`', extracted, re.DOTALL)
-                    pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else extracted.strip()
-                    print(f"extract_verdict returned: {pred_verdict}")
-                except Exception as e:
-                    print(f"extract_verdict failed: {e}")
-                    pred_verdict = "INVALID VERDICT"
-                    print("No decision options found in verdict, defaulting to 'INVALID VERDICT'.")
+            # if option_counts:
+            #     # Use the most frequent option
+            #     pred_verdict = max(option_counts, key=option_counts.get)
+            #     print(f"Fallback verdict selected: {pred_verdict} (appeared {option_counts[pred_verdict]} times)")
+            # else:
+        
+            # If no options found, use extract_verdict from judge.py
+            print("No decision options found in verdict, using extract_verdict from judge.py...")
+            try:
+                extracted = evaluation.extract_verdict(
+                    verdict,
+                    "Supported|Refuted|Not Enough Evidence",
+                    rules,
+                    key_number=self.key_number,
+                )
+                extracted_verdict = re.search(r'`(.*?)`', extracted, re.DOTALL)
+                pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else extracted.strip()
+                print(f"extract_verdict returned: {pred_verdict}")
+            except Exception as e:
+                print(f"extract_verdict failed: {e}")
+                pred_verdict = "INVALID VERDICT"
+                print("No decision options found in verdict, defaulting to 'INVALID VERDICT'.")
 
         report_writer.append_verdict(verdict)
         self.report["judged_verdict"] = verdict
@@ -249,8 +285,16 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None):
-    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions)
+def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None, key_number=1):
+    checker = FactChecker(
+        claim,
+        date,
+        identifier,
+        multimodal,
+        image_path,
+        max_actions,
+        key_number=key_number,
+    )
     verdict, report_path = checker.run()
     
     try:

@@ -1,26 +1,28 @@
 from .llm import prompt_ollama
+from .llm import prompt_gemini
 
-plan_prompt = """Instructions
-The available knowledge is insufficient to assess the Claim.
-Therefore, propose a set of actions to retrieve new and helpful evidence. Adhere to the following rules:
-The actions available are listed under Valid Actions, including a short description for each action. No other actions are possible at this moment.
-For each action, use the formatting as specified in Valid Actions.
-Include all actions in a single Markdown code block at the end of your answer.
-Propose as few actions as possible but as much as needed. Do not propose similar or previously used actions.
-Consider Both Modalities Equally: Avoid focusing too much on one modality at the expense of the other, but always check whether the text claim is true or false.
-Compare Image and Caption: Verify the context of the image and caption.
+plan_prompt = """HƯỚNG DẪN
+Kiến thức hiện tại vẫn chưa đủ để đánh giá tính xác thực của YÊU CẦU.
+Hãy đề xuất ngắn gọn các hành động để thu thập bằng chứng mới, theo đúng quy tắc sau:
 
-Valid Actions:
+QUY TẮC:
+- Mỗi hành động là 1 cụm từ được liệt kê trong mục HÀNH ĐỘNG HỢP LỆ, đi cùng là mô tả sau dấu ":". Hành động được dùng theo định dạng trong mục ĐỊNH DẠNG ĐẦU RA BẮT BUỘC.
+- Đề xuất hành động phải liên quan trực tiếp đến Yêu cầu và chứa ít nhất một từ khóa hoặc thực thể trong Yêu cầu.
+- Không đề xuất các hành động tương tự hoặc đã được sử dụng trước đó trong BẢN GHI.
+- KHÔNG in bất cứ thứ gì ngoài các Hành động đề xuất.
+
+HÀNH ĐỘNG HỢP LỆ (Hành động: mô tả):
 {valid_actions}
 
-Examples:
+ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (thay ... bằng từ, cụm từ, hoặc thực thể từ Yêu cầu):
 {examples}
 
-Record:
+BẢN GHI:
 {record}
 
-Claim: {claim}
-Your Actions:
+YÊU CẦU: {claim}
+
+In ngắn gọn đề xuất của bạn, chỉ có hành động theo ĐỊNH DẠNG ĐẦU RA BẮT BUỘC, mỗi hành động nằm trên 1 dòng:
 """
 
 decompose_prompt = """Instructions
@@ -32,12 +34,12 @@ Your Sub-Claims:
 
 """
 
-def plan(claim, record="", examples="", actions=None, think=True):
+def plan(claim, record="", examples="", actions=None, think=True, key_number=1):
     action_definitions = {
-        "geolocate": {"desc": "Determine the country where an image was taken by providing an image ID.", "example": "geolocate(<image:k>)"},
-        "reverse_search": {"desc": "Perform a reverse image search on the web for similar images.", "example": "reverse_search(<image:k>)"},
-        "web_search": {"desc": "Run an open web search for related webpages.", "example": 'web_search("New Zealand Food Bill 2020")'},
-        "image_search": {"desc": "Retrieve related images for a given query.", "example": 'image_search("China officials white suits carry people")'}
+        "geolocate": {"desc": "Xác định quốc gia hoặc địa điểm chụp của hình ảnh, nếu hình ảnh có cảnh vật hoặc địa danh.", "example": "geolocate(<image:k>)"},
+        "reverse_search": {"desc": "Tìm ngược hình ảnh trên web để kiểm chứng nguồn gốc hoặc phát hiện hình ảnh tương tự.", "example": "reverse_search(<image:k>)"},
+        "web_search": {"desc": "Tìm kiếm trên web thông tin hoặc bài báo chính thống giúp xác minh hoặc bác bỏ yêu cầu.", "example": 'web_search("...")'},
+        "image_search": {"desc": "Tìm hình ảnh liên quan để đối chiếu hoặc xác minh nội dung hình ảnh trong yêu cầu.", "example": 'image_search("...")'},
     }
     if not actions:
         actions = ["web_search", "image_search"]
@@ -46,5 +48,5 @@ def plan(claim, record="", examples="", actions=None, think=True):
     valid_actions = "\n".join([f"{a}: {action_definitions[a]['desc']}" for a in actions])
     examples = "\n".join([f"{action_definitions[a]['example']}" for a in actions])
     prompt = plan_prompt.format(valid_actions=valid_actions, examples=examples, record=record, claim=claim)
-    response = prompt_ollama(prompt, think=think)
-    return response
+    #return prompt_ollama(prompt, think=think)
+    return prompt_gemini(prompt, think=think, key_number=key_number)

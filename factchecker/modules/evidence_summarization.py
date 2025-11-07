@@ -1,40 +1,42 @@
 from .llm import prompt_ollama
+from .llm import prompt_gemini
+import re
 
-summarize_prompt = """
-Instructions
-In order to find evidence that helps your fact-check, you just ran a web search, which yielded a Search Result.
-Your task right now is to summarize the Search Result concisely in at most 5 sentences, only including information that is relevant to the Claim you are checking.
-What to include:
-Information that might be useful for fact-checking the claim (see Record).
-If available: the release date as well as the author or the publisher (e.g., the media company) of the search result.
-Do NOT include:
-Advertisements.
-Any other information unrelated to the Record or the Claim.
-Additional Rules:
-Do not add any additional information besides the information in the Search Result. Also, do not add any information that is not related to the claim, even if it is mentioned in the Search Result.
-If the Search Result doesn't contain any relevant information for the fact-checking work, print only one word in capital letters, do not include anything else: NONE.
-Keep your writing style consistent with the provided Examples.
-Try to filter out relevant information even if the Search Result is in a different language.
+summarize_prompt = """HƯỚNG DẪN
+Bạn là trợ lý kiểm chứng thông tin. Nhiệm vụ của bạn là đọc KẾT QUẢ TÌM KIẾM và TÓM TẮT ngắn gọn những thông tin LIÊN QUAN đến YÊU CẦU dưới đây.
 
-Claim: {claim}
+ĐỊNH NGHĨA:
+"Tóm tắt" có nghĩa là trích ra và diễn đạt lại NGẮN GỌN các thông tin CHÍNH có LIÊN QUAN đến YÊU CẦU, 
+mà không thêm bất kỳ nhận xét, phán đoán, hay thông tin ngoài nội dung gốc.
 
-Evidence:
+MỤC TIÊU:
+- Chỉ chọn các thông tin giúp xác định xem YÊU CẦU là đúng hay sai.
+
+QUY TẮC:
+- Tóm tắt trong tối đa 5 câu ngắn gọn, tập trung vào phần LIÊN QUAN TRỰC TIẾP đến YÊU CẦU.
+- Nếu phát hiện bằng chứng xác nhận hoặc phủ nhận, phải nêu rõ điều đó trong tóm tắt.
+- Nếu không có thông tin nào liên quan, chỉ in đúng một từ: NONE.
+- KHÔNG thêm nhận xét, phân tích, quảng cáo hoặc nội dung không liên quan đến YÊU CẦU.
+
+YÊU CẦU: {claim}
+
+KẾT QUẢ TÌM KIẾM:
 {url}
 {search_result}
 
-Record:
+BẢN GHI:
 {record}
 
-Important: Write your summary in Vietnamese.
-Your Summary:
+In ra TÓM TẮT ngắn gọn thông tin liên quan YÊU CẦU theo QUY TẮC ở trên:
 """
 
-def summarize(claim, search_result, url, record, think=True):
+def summarize(claim, search_result, url, record, think=True, key_number=1):
     prompt = summarize_prompt.format(
         claim=claim,
         search_result=search_result,
         record=record,
         url=url
     )
-    return prompt_ollama(prompt, think=think)
+    #return prompt_ollama(prompt, think=think)
+    return prompt_gemini(prompt, think=think, key_number=key_number)
     
