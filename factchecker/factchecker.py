@@ -7,6 +7,8 @@ from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
 
+MODEL_NAME = "qwen2.5:0.5b"
+
 RULES_PROMPT = """
 Supported
 - Có bằng chứng rõ ràng, trực tiếp và đáng tin cậy ủng hộ yêu cầu.
@@ -114,6 +116,7 @@ class FactChecker:
                             self.claim,
                             scraped_content,
                             result,
+                            model_name=MODEL_NAME,
                             record=self.get_report(),
                             key_number=self.key_number,
                         )
@@ -145,6 +148,7 @@ class FactChecker:
 
         actions = planning.plan(
             self.claim,
+            model_name=MODEL_NAME,
             record=self.get_report(),
             actions=actions,
             key_number=self.key_number,
@@ -180,6 +184,7 @@ class FactChecker:
         seen_action_lines = set(action_lines)
         while iterations <= 2:
             reasoning = evidence_synthesis.develop(
+                model_name=MODEL_NAME,
                 record=self.get_report(),
                 key_number=self.key_number,
             )
@@ -215,6 +220,7 @@ class FactChecker:
         rules = RULES_PROMPT
         while judge_tries < max_judge_tries:
             verdict = evaluation.judge(
+                model_name=MODEL_NAME,
                 record=self.get_report(),
                 decision_options="Supported|Refuted|Not Enough Evidence",
                 rules=rules,
@@ -263,10 +269,11 @@ class FactChecker:
             print("No decision options found in verdict, using extract_verdict from judge.py...")
             try:
                 extracted = evaluation.extract_verdict(
-                    verdict,
-                    "Supported|Refuted|Not Enough Evidence",
-                    rules,
-                    key_number=self.key_number,
+                    conclusion=verdict,
+                    decision_options="Supported|Refuted|Not Enough Evidence",
+                    model_name=MODEL_NAME,
+                    rules=rules,
+                    key_number=self.key_number
                 )
                 extracted_verdict = re.search(r'`(.*?)`', extracted, re.DOTALL)
                 pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else extracted.strip()

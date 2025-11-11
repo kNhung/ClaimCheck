@@ -1,5 +1,4 @@
-from .llm import prompt_ollama
-from .llm import prompt_gemini
+from .llm import prompt_model
 
 plan_prompt = """HƯỚNG DẪN
 Kiến thức hiện tại vẫn chưa đủ để đánh giá tính xác thực của YÊU CẦU.
@@ -34,7 +33,7 @@ Your Sub-Claims:
 
 """
 
-def plan(claim, record="", examples="", actions=None, think=True, key_number=1):
+def plan(claim, model_name, record="", examples="", actions=None, think=True, key_number=1):
     action_definitions = {
         "geolocate": {"desc": "Xác định quốc gia hoặc địa điểm chụp của hình ảnh, nếu hình ảnh có cảnh vật hoặc địa danh.", "example": "geolocate(<image:k>)"},
         "reverse_search": {"desc": "Tìm ngược hình ảnh trên web để kiểm chứng nguồn gốc hoặc phát hiện hình ảnh tương tự.", "example": "reverse_search(<image:k>)"},
@@ -48,5 +47,4 @@ def plan(claim, record="", examples="", actions=None, think=True, key_number=1):
     valid_actions = "\n".join([f"{a}: {action_definitions[a]['desc']}" for a in actions])
     examples = "\n".join([f"{action_definitions[a]['example']}" for a in actions])
     prompt = plan_prompt.format(valid_actions=valid_actions, examples=examples, record=record, claim=claim)
-    #return prompt_ollama(prompt, think=think)
-    return prompt_gemini(prompt, think=think, key_number=key_number)
+    return prompt_model(prompt, model_name=model_name, think=think, key_number=key_number)

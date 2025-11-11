@@ -22,7 +22,7 @@ def prompt_gpt(prompt, model='o4-mini-2025-04-16'):
     )
     return response.choices[0].message.content
 
-def prompt_gemini(prompt_text, model='gemini-2.0-flash-lite', think=True, key_number=1):
+def prompt_gemini(prompt_text, model_name, think=True, key_number=1):
     _configure_gemini(key_number=key_number)
     system_instruction = None
     if not think:
@@ -33,7 +33,7 @@ def prompt_gemini(prompt_text, model='gemini-2.0-flash-lite', think=True, key_nu
         )
 
     generative_model = genai.GenerativeModel(
-        model,
+        model_name=model_name,
         system_instruction=system_instruction,
     )
     response = generative_model.generate_content(prompt_text)
@@ -42,7 +42,7 @@ def prompt_gemini(prompt_text, model='gemini-2.0-flash-lite', think=True, key_nu
         raise RuntimeError("Gemini returned an empty response.")
     return text.strip()
 
-def prompt_ollama(prompt, model='qwen2.5:0.5b', think=True):
+def prompt_ollama(prompt, model_name, think=True):
 #def prompt_ollama(prompt, model='qwen3:0.6b', think=True):
 #def prompt_ollama(prompt, model='phi3:3.8b-mini-128k-instruct-q2_K', think=True):
 #def prompt_ollama(prompt, model='jdevasier/qwen2.5-fact-verification', think=True):
@@ -67,7 +67,7 @@ def prompt_ollama(prompt, model='qwen2.5:0.5b', think=True):
         'content': prompt,
     })
 
-    response = ollama.chat(model=model, messages=messages)
+    response = ollama.chat(model=model_name, messages=messages)
     #response = client.chat(model=model, messages=messages)
 
     output = response['message']['content']
@@ -76,3 +76,12 @@ def prompt_ollama(prompt, model='qwen2.5:0.5b', think=True):
         output = output.split('</think>')[-1]
         
     return output
+
+
+def prompt_model(prompt, model_name, think=True, key_number=1):
+    if model_name.startswith('gemini'):
+        return prompt_gemini(prompt, model_name=model_name, think=think, key_number=key_number)
+    elif model_name.startswith('qwen') or model_name.startswith('phi') or model_name.startswith('gpt-oss') or model_name.startswith('deepseek'):
+        return prompt_ollama(prompt, model_name=model_name, think=think)
+    else:
+        return prompt_gpt(prompt, model=model_name)

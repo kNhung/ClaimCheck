@@ -1,5 +1,4 @@
-from .llm import prompt_ollama
-from .llm import prompt_gemini
+from .llm import prompt_model
 import re
 
 summarize_prompt = """HƯỚNG DẪN
@@ -30,13 +29,11 @@ BẢN GHI:
 In ra TÓM TẮT ngắn gọn thông tin liên quan YÊU CẦU theo QUY TẮC ở trên:
 """
 
-def summarize(claim, search_result, url, record, think=True, key_number=1):
+def summarize(claim, search_result, url, record, model_name, think=True, key_number=1):
     prompt = summarize_prompt.format(
         claim=claim,
         search_result=search_result,
         record=record,
         url=url
     )
-    #return prompt_ollama(prompt, think=think)
-    return prompt_gemini(prompt, think=think, key_number=key_number)
-    
+    return prompt_model(prompt, model_name=model_name, think=think, key_number=key_number)
