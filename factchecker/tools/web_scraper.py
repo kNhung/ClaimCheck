@@ -37,9 +37,9 @@ def scrape_url_content(url: str) -> Optional[MultimodalSequence]:
             elif page.status_code == 404:
                 return None
             page.raise_for_status()
-            soup = BeautifulSoup(page.content, 'html.parser')
-            if soup.article:
-                soup = soup.article
+            soup = BeautifulSoup(page.content, 'html.parser') 
+            # if soup.article:
+            #     soup = soup.article
             text = md(soup)
             text = postprocess_scraped(text)
             return text

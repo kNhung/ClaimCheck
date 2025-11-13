@@ -2,7 +2,7 @@ import re
 import os
 import json
 import concurrent.futures
-from .modules import planning, evidence_summarization, evidence_synthesis, evaluation
+from .modules import planning, evidence_summarization, evidence_synthesis, evaluation, retriver_rav
 from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
@@ -112,14 +112,17 @@ class FactChecker:
 
                     def process_result(result):
                         scraped_content = web_scraper.scrape_url_content(result)
-                        summary = evidence_summarization.summarize(
-                            self.claim,
-                            scraped_content,
-                            result,
-                            model_name=MODEL_NAME,
-                            record=self.get_report(),
-                            key_number=self.key_number,
-                        )
+                        # summary = evidence_summarization.summarize(
+                        #     self.claim,
+                        #     scraped_content,
+                        #     result,
+                        #     model_name=MODEL_NAME,
+                        #     record=self.get_report(),
+                        #     key_number=self.key_number,
+                        # )
+
+                        #scraped_content = retriver_rav.scrape_text(result)
+                        summary = retriver_rav.get_top_evidence(self.claim, scraped_content)
 
                         if "NONE" in summary:
                             print(f"Skipping summary for evidence: {result}")
