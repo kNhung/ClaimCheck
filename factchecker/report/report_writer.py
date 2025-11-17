@@ -1,7 +1,7 @@
 import os
 import csv
 from datetime import datetime
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, classification_report
 import pandas as pd
 
 REPORT_PATH = None
@@ -196,7 +196,9 @@ def calculate_metrics(csv_path):
         
         accuracy = accuracy_score(y_true, y_pred)
         precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted', zero_division=0)
-        
+        confusion = confusion_matrix(y_true, y_pred)
+        class_report = classification_report(y_true, y_pred, zero_division=0)
+
         metrics = {
             'accuracy': accuracy,
             'precision': precision, 
@@ -214,6 +216,10 @@ def calculate_metrics(csv_path):
                 mf.write(f"Precision (weighted): {metrics['precision']:.4f}\n")
                 mf.write(f"Recall (weighted): {metrics['recall']:.4f}\n")
                 mf.write(f"F1-score (weighted): {metrics['f1']:.4f}\n")
+                mf.write("\nConfusion Matrix:\n")
+                mf.write(str(confusion) + "\n")
+                mf.write("\nClassification Report:\n")
+                mf.write(class_report)
         except Exception as e:
             print(f"Error writing metrics file: {e}")
         

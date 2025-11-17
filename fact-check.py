@@ -45,8 +45,8 @@ if __name__ == "__main__":
     run_identifier = now_vn.strftime("%d%m%y-%H%M")
 
     key_number = 1
-    key_count = 1
-    claims_per_key = 2
+    # key_count = 1
+    # claims_per_key = 2
 
     # Chạy fact-check cho từng claim
     for i, record in enumerate(data):
@@ -55,10 +55,10 @@ if __name__ == "__main__":
         claim_id = str(record.get("id", i + 1))
         expected_label = record.get("labels", None)  # Get expected label if exists
 
-        if key_count > claims_per_key:
-            key_number += 1
-            key_count = 1
-            print(f"API key used: GEMINI_API_KEY_{key_number}")
+        # if key_count > claims_per_key:
+        #     key_number += 1
+        #     key_count = 1
+        #     print(f"API key used: GEMINI_API_KEY_{key_number}")
 
         print(f"\n=== [{i+1}/{num_records}] Fact-checking: {claim}")
         print(f"Expected label: {expected_label}")
@@ -77,6 +77,6 @@ if __name__ == "__main__":
         print(f"Predicted verdict: {verdict}")
         print(f"Report saved at: {report_path}")
 
-        key_count += 1
-        print(f"Waiting for {time_sleep} seconds before next claim...")
-        time.sleep(time_sleep)  # Chờ giữa các lần gọi API
+        # key_count += 1
+        # print(f"Waiting for {time_sleep} seconds before next claim...")
+        # time.sleep(time_sleep)  # Chờ giữa các lần gọi API

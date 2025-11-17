@@ -12,6 +12,14 @@ ClaimCheck is a fact-checking system that processes claims and verifies their ve
 
 2. Get your API key from [SerpAPI](https://serper.dev/).
 
+3. Tạo khóa API cho Gemini trong [Google AI Studio](https://aistudio.google.com/app/apikey).
+     - Thiết lập biến môi trường trước khi chạy ứng dụng:
+         ```bash
+         export GEMINI_API_KEY="your-gemini-key"
+         # Tùy chọn: chọn model khác, ví dụ gemini-2.0-pro
+         export GEMINI_MODEL="gemini-2.5-flash"
+         ```
+
 ## Installation
 1. Clone the repository:
     ```bash
