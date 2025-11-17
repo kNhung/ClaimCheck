@@ -2,7 +2,7 @@ import re
 import os
 import json
 import concurrent.futures
-from .modules import planning, evidence_summarization, evidence_synthesis, evaluation
+from .modules import planning, evidence_summarization, evidence_synthesis, evaluation, llm
 from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
@@ -39,7 +39,7 @@ LABEL_MAP = {
 }
 
 class FactChecker:
-    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2):
+    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, model_name=None):
         self.claim = claim
         self.date = date
         self.multimodal = multimodal if not (multimodal and image_path is None) else False
@@ -48,6 +48,9 @@ class FactChecker:
             from datetime import datetime
             identifier = datetime.now().strftime("%m%d%Y%H%M%S")
         self.identifier = identifier
+        if model_name:
+            llm.set_default_ollama_model(model_name)
+        self.model_name = llm.get_default_ollama_model()
         report_writer.init_report(claim, identifier)
         self.report_path = report_writer.REPORT_PATH
         print(f"Initialized report at: {self.report_path}")
@@ -56,6 +59,7 @@ class FactChecker:
             "claim": self.claim,
             "date": self.date,
             "identifier": self.identifier,
+            "model": self.model_name,
             "actions": {},
             "reasoning": [],
             "judged_verdict": None,
@@ -252,8 +256,8 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None):
-    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions)
+def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None, model_name=None):
+    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
     verdict, report_path = checker.run()
     
     # try:

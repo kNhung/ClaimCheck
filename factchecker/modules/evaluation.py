@@ -1,38 +1,54 @@
 from .llm import prompt_ollama
 
-judge_prompt = """
-Hướng dẫn
-Xác định tính đúng/sai của Phát biểu theo các bước:
-1) Tóm tắt ngắn gọn (tối đa một đoạn) các ý chính từ quá trình kiểm chứng (xem Record).
-2) Viết một đoạn giải thích lựa chọn nào trong Decision Options là phù hợp nhất. Ở cuối đoạn, chèn đúng một nhãn lựa chọn trong dấu backticks như `this`.
+judge_prompt = """HƯỚNG DẪN
+Bạn là người kiểm chứng sự thật. Dựa vào BẢN GHI, hãy SUY LUẬN và đưa ra PHÁN QUYẾT cuối cùng cho YÊU CẦU (Claim).
 
-Lưu ý kỹ thuật:
-- Các Decision Options được giữ nguyên tiếng Anh. Hãy đảm bảo đưa đúng một nhãn nằm trong danh sách này và đặt trong backticks.
-
-Decision Options:
+PHÁN QUYẾT HỢP LỆ:
 {options}
 
-Rules:
+QUY TẮC:
 {rules}
 
-Record:
+YÊU CẦU ĐẦU RA:
+- Gồm **hai phần duy nhất**, đúng thứ tự và đúng tiêu đề:
+### Justification:
+<1 đoạn SUY LUẬN ngắn, giải thích vì sao chọn phán quyết. Không lặp lại Claim. Không tóm tắt toàn bộ Record.>
+### Verdict:
+<1 từ trong {options}, đặt trong dấu backtick. Không thêm chữ khác.>
+
+QUAN TRỌNG: mục ### Verdict chỉ in DUY NHẤT MỘT TỪ, đặt trong dấu `...`.
+
+VÍ DỤ:
+### Justification:
+Bằng chứng trong Record đều xác nhận rằng Hà Nội là thủ đô của Việt Nam.
+### Verdict:
+`Supported`
+
+BẢN GHI:
 {record}
-Your Judgement:
+
+In ra kết quả theo đúng ĐỊNH DẠNG và VÍ DỤ ở trên:
 """
 
-verdict_extraction_prompt = """
-Hướng dẫn
-Bạn là người kiểm chứng. Nhiệm vụ là trích xuất phán quyết (verdict) từ phần kết luận. Chỉ trả về một nhãn duy nhất, nằm trong các lựa chọn sau:
 
-Decision Options:
+verdict_extraction_prompt = """HƯỚNG DẪN
+Bạn là người kiểm chứng sự thật.
+Hãy trích xuất duy nhất phán quyết cuối cùng từ KẾT LUẬN sau.
+Phán quyết phải thuộc một trong các tùy chọn dưới đây.
+
+TÙY CHỌN PHÁN QUYẾT:
 {options}
 
-Rules:
+QUY TẮC:
 {rules}
 
-Conclusion:
+ĐỊNH DẠNG ĐẦU RA:
+In DUY NHẤT MỘT TỪ PHÁN QUYẾT (KHÔNG thêm lời giải thích), đặt trong dấu backtick `...`.
+
+KẾT LUẬN:
 {conclusion}
-Extracted Verdict:
+
+In ra KẾT QUẢ theo ĐỊNH DẠNG ĐẦU RA ở trên:
 """
 
 def judge(record, decision_options, rules="", think=True):

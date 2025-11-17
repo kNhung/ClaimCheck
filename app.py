@@ -27,6 +27,8 @@ with st.sidebar:
     claim = st.text_input("Câu claim", placeholder="Ví dụ: Ông Putin nói Nga sẽ phản ứng mạnh nếu bị Tomahawk tấn công")
     cutoff = st.date_input("Chọn thời gian (ngày)", value=date.today(), format="DD/MM/YYYY")
     max_actions = st.slider("Số hành động tối đa", min_value=1, max_value=5, value=2, help="Giới hạn số truy vấn tìm kiếm để chạy nhanh hơn.")
+    default_model = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
+    model_name = st.text_input("Tên model (Ollama)", value=default_model)
     run_btn = st.button("Chạy kiểm chứng")
 
 
@@ -48,7 +50,8 @@ if run_btn:
     with st.status("Đang lập kế hoạch, thu thập bằng chứng và suy luận...", expanded=True) as status:
         try:
             status.write("Bắt đầu chạy pipeline...")
-            verdict, report_path = factcheck(claim.strip(), _format_date(cutoff), max_actions=max_actions)
+            selected_model = model_name.strip() if model_name and model_name.strip() else None
+            verdict, report_path = factcheck(claim.strip(), _format_date(cutoff), max_actions=max_actions, model_name=selected_model)
             status.update(label="Hoàn tất", state="complete")
         except Exception as e:
             status.update(label="Lỗi khi chạy pipeline", state="error")

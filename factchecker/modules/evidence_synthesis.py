@@ -1,41 +1,35 @@
 from .llm import prompt_ollama
 
-develop_prompt = """
-Hướng dẫn
-Bạn vừa thu thập được Bằng chứng mới. Hãy phân tích tính đúng/sai của Phát biểu dựa trên bằng chứng và tuân thủ các quy tắc sau:
-- Tập trung phát triển insight mới. Không lặp lại dài dòng nội dung từ Record. Không nhắc lại nguyên văn Claim.
-- Viết suy luận theo từng bước; khi cần có thể giải thích chi tiết.
-- Tùy độ phức tạp, viết khoảng 1–3 đoạn; càng ngắn gọn càng tốt.
-- Nếu thông tin chưa đủ để kết luận, nêu rõ dữ liệu nào còn thiếu.
-- Nếu trích nguồn web, dẫn link bằng Markdown (dùng URL gốc làm hyperlink).
-- Chỉ dùng thông tin có trong các bằng chứng đã ghi nhận; có thể dùng kiến thức thường thức ở mức hợp lý.
+develop_prompt = """HƯỚNG DẪN
+Bạn là 1 nhà kiểm chứng sự thật. Dựa vào BẢN GHI, hãy kiểm tra YÊU CẦU (Claim) đã có đủ bằng chứng để chứng minh chưa.
 
-Nếu thực sự cần thu thập thêm bằng chứng, bạn có thể đề xuất các hành động. Nếu không cần, chỉ đưa ra phần suy luận, không thêm gì khác.
-Tuân thủ:
-- Các hành động hợp lệ nằm trong phần Valid Actions (kèm mô tả ngắn). Không có hành động nào khác ngoài danh sách này.
-- Mỗi hành động phải theo đúng định dạng chỉ định ở Valid Actions.
-- Đề xuất ít nhưng đủ; không lặp lại hay trùng với các hành động đã có.
-- Đặt toàn bộ các hành động trong một khối mã (Markdown code block) duy nhất ở cuối câu trả lời.
 
-Lưu ý kỹ thuật: Giữ nguyên cú pháp chính xác khi in ra hành động, ví dụ web_search("...") và token NONE (không dịch).
+CÁC BƯỚC CẦN THỰC HIỆN:
+1. Đọc YÊU CẦU từ BẢN GHI (Phần ... trong #Claim:...#)
+2. PHÂN TÍCH các bằng chứng trong BẢN GHI đã đủ để HỖ TRỢ hoặc PHẢN BÁC hoàn toàn YÊU CẦU chưa.
+3. Nếu chưa đủ, hãy đề xuất Hành động mới để thu thập bằng chứng bổ sung. 
+Định nghĩa "hành động" là dùng công cụ tìm kiếm web với từ khóa cụ thể để thu thập bằng chứng. Công cụ tìm kiếm web có định dạng: web_search("..."), image_search("...") với ... là từ khóa tìm kiếm. Ví dụ cho 1 hành động: 
+web_search("Việt Nam nằm ở đâu trên bản đồ thế giới?")
 
-Valid Actions:
-geolocate: Xác định quốc gia nơi ảnh được chụp bằng ID ảnh.
-reverse search: Tìm kiếm ảnh ngược trên web để tìm ảnh tương tự.
-web search: Tìm kiếm web mở cho các trang liên quan.
-image search: Tìm hình ảnh liên quan cho một truy vấn.
-NONE: Không đề xuất hành động nào.
 
-Ví dụ:
-geolocate(<image:k>)
-reverse_search(<image:k>)
-web_search("New Zealand Food Bill 2020")
-image_search("China officials white suits carry people")
-NONE
+LƯU Ý:
+- Tập trung vào phát triển suy luận mới.
+- Không lặp lại các suy luận đã có trong BẢN GHI.
+- Trình bày PHÂN TÍCH từ 1-3 đoạn.
 
-Record:
+ĐỊNH DẠNG ĐẦU RA (theo thứ tự các bước trên):
+### Reasoning:
+Điền phân tích của bạn ở đây... (bước 1, bước 2). Trình bày PHÂN TÍCH trong 1-3 đoạn.
+Kết luận phân tích trên bằng đúng 1 cụm từ: "Đã ĐỦ BẰNG CHỨNG" hoặc "CHƯA ĐỦ BẰNG CHỨNG" cho YÊU CẦU.
+### Actions:
+Dựa vào phần Reasoning trên:
+- Nếu "ĐÃ ĐỦ BẰNG CHỨNG", in ra "NONE" và kết thúc.
+- Nếu "CHƯA ĐỦ BẰNG CHỨNG", điền hành động của bạn ở đây... (bước 3). Mỗi hành động trên 1 dòng, theo định dạng công cụ tìm kiếm web đã nêu ở trên.
+
+BẢN GHI:
 {record}
-Your Analysis:
+
+In ra KẾT QUẢ theo ĐỊNH DẠNG ĐẦU RA ở trên:
 """
 
 def develop(record, think=True):

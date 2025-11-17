@@ -1,32 +1,32 @@
 from .llm import prompt_ollama
 
-plan_prompt = """Hướng dẫn
-Kiến thức hiện có chưa đủ để đánh giá tính đúng sai của Phát biểu (Claim).
-Vì vậy, hãy đề xuất một tập hành động để thu thập thêm bằng chứng hữu ích. Tuân thủ các quy tắc sau:
-- Các hành động hợp lệ được liệt kê trong phần Valid Actions (kèm mô tả ngắn). Hiện tại không có hành động nào khác ngoài danh sách này.
-- Với mỗi hành động, phải dùng đúng định dạng như trong Valid Actions.
-- Đặt toàn bộ các hành động trong một khối mã (Markdown code block) duy nhất ở cuối câu trả lời.
-- Đề xuất càng ít hành động càng tốt nhưng đủ cần thiết. Không đề xuất các hành động trùng lặp hoặc đã dùng rồi.
-- Cân bằng giữa các phương thức (nếu có); tuy nhiên vẫn cần kiểm chứng đúng/sai của phát biểu văn bản.
-- So sánh hình ảnh và chú thích (nếu liên quan) để xác thực ngữ cảnh.
+plan_prompt = """HƯỚNG DẪN
+Kiến thức hiện tại vẫn chưa đủ để đánh giá tính xác thực của YÊU CẦU.
+Hãy đề xuất ngắn gọn các hành động để thu thập bằng chứng mới, theo đúng quy tắc sau:
 
-Lưu ý kỹ thuật: Giữ nguyên chính xác cú pháp hành động khi xuất ra, ví dụ web_search("...") và từ khóa NONE khi không có hành động. Không dịch hoặc thay đổi "web_search" hay "NONE".
+QUY TẮC:
+- Mỗi hành động là 1 cụm từ được liệt kê trong mục HÀNH ĐỘNG HỢP LỆ, đi cùng là mô tả sau dấu ":". Hành động được dùng theo định dạng trong mục ĐỊNH DẠNG ĐẦU RA BẮT BUỘC.
+- Đề xuất hành động phải liên quan trực tiếp đến Yêu cầu và chứa ít nhất một từ khóa hoặc thực thể trong Yêu cầu.
+- Không đề xuất các hành động tương tự hoặc đã được sử dụng trước đó trong BẢN GHI.
+- KHÔNG in bất cứ thứ gì ngoài các Hành động đề xuất.
 
-Valid Actions:
+HÀNH ĐỘNG HỢP LỆ (Hành động: mô tả):
 {valid_actions}
 
-Ví dụ:
+ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (thay ... bằng từ, cụm từ, hoặc thực thể từ Yêu cầu):
 {examples}
 
-Record:
+BẢN GHI:
 {record}
 
-Claim: {claim}
-Your Actions:
+YÊU CẦU: {claim}
+
+In ngắn gọn đề xuất của bạn, chỉ có hành động theo ĐỊNH DẠNG ĐẦU RA BẮT BUỘC, mỗi hành động nằm trên 1 dòng:
 """
 
-decompose_prompt = """Hướng dẫn
-Phân rã phát biểu thành các tiểu phát biểu/câu hỏi nhỏ, cụ thể và có thể xử lý độc lập. Số lượng không quá 5.
+decompose_prompt = """Instructions
+Decompose the claim into smaller, manageable sub-claims or questions that can be addressed individually. Each sub-claim should be specific and focused.
+There should be no more than 5 sub-claims.
 
 Claim: {claim}
 Your Sub-Claims:

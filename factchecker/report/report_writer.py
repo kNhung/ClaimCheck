@@ -1,7 +1,7 @@
 import os
 import csv
 from datetime import datetime
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, classification_report
 import pandas as pd
 
 REPORT_PATH = None
@@ -77,7 +77,7 @@ def append_justification(justification):
     except Exception as e:
         print(f"Error appending justification: {e}")
 
-def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None):
+def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None):
     """Writes detailed fact-checking results to a CSV file with fixed columns.
     Ensures a sample is only written once (skip if same report_path or id already present)."""
     try:
@@ -139,7 +139,8 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 'expected_label',
                 'compare',
                 'timestamp',
-                'report_path'
+                'report_path',
+                'model'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             if not file_exists:
@@ -158,7 +159,8 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 'expected_label': label_num if label_num is not None else "",
                 'compare': 1 if (label_num is not None and pred_num is not None and label_num == pred_num) else 0,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'report_path': report_path or ""
+                'report_path': report_path or "",
+                'model': model_name or ""
             })
     except Exception as e:
         print(f"Error writing to CSV: {e}")
@@ -216,11 +218,24 @@ def calculate_metrics(csv_path):
         accuracy = accuracy_score(y_true, y_pred)
         precision, recall, f1, _ = precision_recall_fscore_support(y_true, y_pred, average='weighted', zero_division=0)
         
+        class_report = classification_report(
+            y_true,
+            y_pred,
+            digits=4,
+            zero_division=0
+        )
+
+        model_names = None
+        if 'model' in df.columns:
+            model_names = sorted({str(m).strip() for m in df['model'].dropna() if str(m).strip()})
+
         metrics = {
             'accuracy': accuracy,
             'precision': precision, 
             'recall': recall,
-            'f1': f1
+            'f1': f1,
+            'classification_report': class_report,
+            'model_names': model_names
         }
 
         # Write metrics to metrics.txt next to the csv file
@@ -234,6 +249,11 @@ def calculate_metrics(csv_path):
                 mf.write(f"Precision (weighted): {metrics['precision']:.4f}\n")
                 mf.write(f"Recall (weighted): {metrics['recall']:.4f}\n")
                 mf.write(f"F1-score (weighted): {metrics['f1']:.4f}\n")
+                mf.write("\nClassification report (per class):\n")
+                mf.write(metrics['classification_report'])
+                if model_names:
+                    mf.write("\n\nModels used:\n")
+                    mf.write(", ".join(model_names))
             print(f"Successfully wrote metrics to {metrics_path}")
         except Exception as e:
             print(f"Error writing metrics file: {e}")
