@@ -37,8 +37,8 @@ def plan(claim, record="", examples="", actions=None, think=True):
     action_definitions = {
         "geolocate": {"desc": "Xác định quốc gia nơi ảnh được chụp bằng cách cung cấp ID ảnh.", "example": "geolocate(<image:k>)"},
         "reverse_search": {"desc": "Thực hiện tìm kiếm ảnh ngược trên web để tìm ảnh tương tự.", "example": "reverse_search(<image:k>)"},
-        "web_search": {"desc": "Thực hiện tìm kiếm web mở cho các trang liên quan.", "example": 'web_search("New Zealand Food Bill 2020")'},
-        "image_search": {"desc": "Lấy các hình ảnh liên quan cho một truy vấn.", "example": 'image_search("China officials white suits carry people")'}
+        "web_search": {"desc": "Thực hiện tìm kiếm web mở cho các trang liên quan.", "example": 'web_search("...")'},
+        "image_search": {"desc": "Lấy các hình ảnh liên quan cho một truy vấn.", "example": 'image_search("...")'}
     }
     if not actions:
         actions = ["web_search", "image_search"]
