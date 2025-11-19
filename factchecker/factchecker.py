@@ -234,6 +234,12 @@ class FactChecker:
             extracted_verdict = re.search(r'`(.*?)`', verdict, re.DOTALL)
             pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else ''
 
+            if not extracted_verdict:
+                # Try to extract from ** **
+                extracted_verdict = re.search(r'\*\*(.*?)\*\*', verdict, re.DOTALL)
+                if extracted_verdict:
+                    pred_verdict = extracted_verdict.group(1).strip()
+
             vi_to_en = {
                 "có căn cứ": "Supported",
                 "được hỗ trợ": "Supported",
@@ -245,8 +251,21 @@ class FactChecker:
                 "thiếu chứng cứ": "Not Enough Evidence"
             }
 
+            en_normalize = {
+                "support": "Supported",
+                "supported": "Supported",
+                "refute": "Refuted",
+                "refuted": "Refuted",
+                "not enough": "Not Enough Evidence",
+                "not enough evidence": "Not Enough Evidence",
+                "insufficient evidence": "Not Enough Evidence",
+                "insufficient": "Not Enough Evidence"
+            }
+
             if pred_verdict.lower() in vi_to_en:
                 pred_verdict = vi_to_en[pred_verdict.lower()]
+            elif pred_verdict.lower() in en_normalize:
+                pred_verdict = en_normalize[pred_verdict.lower()]
 
             if pred_verdict in allowed_verdicts:
                 break
