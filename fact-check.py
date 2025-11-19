@@ -44,7 +44,7 @@ if __name__ == "__main__":
     # Tạo một thư mục chạy duy nhất theo định dạng ddmmyy-hhmm
     run_identifier = now_vn.strftime("%d%m%y-%H%M")
 
-    key_number = 1
+    #key_number = 1
     # key_count = 1
     # claims_per_key = 2
 
@@ -70,8 +70,7 @@ if __name__ == "__main__":
             claim, 
             date, 
             identifier=identifier,
-            expected_label=expected_label,
-            key_number=key_number
+            expected_label=expected_label
         )
         
         print(f"Predicted verdict: {verdict}")

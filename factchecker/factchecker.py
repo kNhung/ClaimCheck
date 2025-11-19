@@ -89,7 +89,7 @@ class FactChecker:
 
     def process_action_line(self, line):
         try:
-            m = re.match(r'(\w+)_search\("([^"]+)"\)', line)
+            m = re.match(r'(\w+)_search\("([^"]+)"\)', line, re.IGNORECASE)
             if m:
                 action, query = m.groups()
                 action_entry = {
@@ -102,7 +102,7 @@ class FactChecker:
                     print(f"Skipping duplicate action: {identifier}")
                     return
 
-                if action == 'web':
+                if action.lower() == 'web':
                     self.report["actions"][identifier] = action_entry
                     urls, snippets = web_search.web_search(query, self.date, top_k=3)
 
@@ -121,7 +121,6 @@ class FactChecker:
                         #     key_number=self.key_number,
                         # )
 
-                        #scraped_content = retriver_rav.scrape_text(result)
                         summary = retriver_rav.get_top_evidence(self.claim, scraped_content)
 
                         if "NONE" in summary:
@@ -162,8 +161,9 @@ class FactChecker:
         action_lines = [x.strip() for x in actions.split('\n')]
         print(f"Extracted action lines: {action_lines}")
 
-        # Filter out invalid or empty action lines using regex
-        action_lines = [line for line in action_lines if re.match(r'^[^\w]*([\w-]+)_search\("([^"]+)"\)', line, re.IGNORECASE)]
+        # Extract all web_search actions from the entire actions string
+        matches = re.findall(r'(\w+)_search\("([^"]+)"\)', actions, re.IGNORECASE)
+        action_lines = [f'{action}_search("{query}")' for action, query in matches]
         print(f"Filtered valid action lines: {action_lines}")
         print(f"Total action lines: {len(action_lines)}")
         print(f"Max actions allowed: {self.max_actions}")
@@ -198,7 +198,7 @@ class FactChecker:
             self.report["reasoning"].append(reasoning)
             self.save_report_json()
             reasoning_action_lines = [x.strip() for x in reasoning.split('\n')]
-            reasoning_action_lines = [line for line in reasoning_action_lines if re.match(r'(web_search\("([^"]+)"\)|NONE)', line, re.IGNORECASE)]
+            reasoning_action_lines = [line for line in reasoning_action_lines if re.match(r'((\w+)_search\("([^"]+)"\)|NONE)', line, re.IGNORECASE)]
 
             print(f"Extracted reasoning action lines: {reasoning_action_lines}")
 
