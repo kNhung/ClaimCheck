@@ -1,20 +1,16 @@
-from .llm import prompt_ollama
+from .llm import prompt_groq
 
+plan_prompt = """HƯỚNG DẪN
+Kiến thức hiện tại vẫn chưa đủ để đánh giá tính xác thực của YÊU CẦU.
+Hãy đề xuất ngắn gọn các hành động để thu thập bằng chứng mới, theo đúng quy tắc sau:
 
-plan_prompt = """
-Nhiệm vụ: Lên kế hoạch tìm thêm bằng chứng để kiểm chứng phát biểu (Claim).
-Claim: {claim}
-Bạn CHỈ ĐƯỢC phép in ra danh sách các hành động theo đúng cú pháp bên dưới.
-Mỗi hành động phải được in trong cùng một khối mã (```) duy nhất.
-Không được giải thích, không được in văn bản tự nhiên, không thêm mô tả.
+QUY TẮC:
+- Mỗi hành động là 1 cụm từ được liệt kê trong mục HÀNH ĐỘNG HỢP LỆ, đi cùng là mô tả sau dấu ":". Hành động được dùng theo định dạng trong mục ĐỊNH DẠNG ĐẦU RA BẮT BUỘC.
+- Đề xuất hành động phải liên quan trực tiếp đến Yêu cầu và chứa ít nhất một từ khóa hoặc thực thể trong Yêu cầu.
+- Không đề xuất các hành động tương tự hoặc đã được sử dụng trước đó trong BẢN GHI.
+- KHÔNG in bất cứ thứ gì ngoài các Hành động đề xuất.
 
-Quy tắc:
-- Hành động đầu tiên *bắt buộc* phải là:
-  web_search("{claim}")
-- Không thêm văn bản khác ngoài khối mã hành động.
-- Không được thêm link thủ công hoặc hướng dẫn.
-
-Hành động hợp lệ:
+HÀNH ĐỘNG HỢP LỆ (Hành động: mô tả):
 {valid_actions}
 
 ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (thay ... bằng từ, cụm từ, hoặc thực thể từ Yêu cầu):
@@ -49,12 +45,6 @@ def plan(claim, record="", examples="", actions=None, think=True):
         
     valid_actions = "\n".join([f"{a}: {action_definitions[a]['desc']}" for a in actions])
     examples = "\n".join([f"{action_definitions[a]['example']}" for a in actions])
-    
-    prompt = plan_prompt.format( 
-        valid_actions=valid_actions, 
-        examples=examples, 
-        record=record, 
-        claim=claim,
-    ) 
-    response = prompt_ollama(prompt, think=think) 
+    prompt = plan_prompt.format(valid_actions=valid_actions, examples=examples, record=record, claim=claim)
+    response = prompt_groq(prompt, think=think)
     return response
