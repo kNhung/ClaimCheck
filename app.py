@@ -27,22 +27,9 @@ with st.sidebar:
     st.header("Cấu hình")
     cutoff = st.date_input("Chọn thời gian (ngày)", value=date.today(), format="DD/MM/YYYY")
     max_actions = st.slider("Số hành động tối đa", min_value=1, max_value=5, value=2, help="Giới hạn số truy vấn tìm kiếm để chạy nhanh hơn.")
-
-# Centered main input
-_, col_center, _ = st.columns([1, 2, 1])
-with col_center:
-    claim = st.text_input(
-        "Câu claim",
-        placeholder="Ví dụ: Ông Putin nói Nga sẽ phản ứng mạnh nếu bị Tomahawk tấn công",
-    )
-    uploaded_image = st.file_uploader(
-        "Upload hình ảnh (tùy chọn)",
-        type=["png", "jpg", "jpeg", "gif", "webp"],
-        help="Upload hình ảnh để kiểm chứng vị trí địa lý hoặc tìm kiếm ngược",
-    )
-    if uploaded_image is not None:
-        st.image(uploaded_image, caption="Hình ảnh đã upload", use_container_width=True)
-    run_btn = st.button("Kiểm chứng")
+    default_model = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
+    model_name = st.text_input("Tên model (Ollama)", value=default_model)
+    run_btn = st.button("Chạy kiểm chứng")
 
 
 col_reason, col_evidence, col_verdict = st.columns([2, 2, 1])
@@ -73,13 +60,8 @@ if run_btn:
     with st.status("Đang lập kế hoạch, thu thập bằng chứng và suy luận...", expanded=True) as status:
         try:
             status.write("Bắt đầu chạy pipeline...")
-            verdict, report_path = factcheck(
-                claim.strip(), 
-                _format_date(cutoff), 
-                multimodal=multimodal,
-                image_path=image_path,
-                max_actions=max_actions
-            )
+            selected_model = model_name.strip() if model_name and model_name.strip() else None
+            verdict, report_path = factcheck(claim.strip(), _format_date(cutoff), max_actions=max_actions, model_name=selected_model)
             status.update(label="Hoàn tất", state="complete")
         except Exception as e:
             status.update(label="Lỗi khi chạy pipeline", state="error")

@@ -61,7 +61,12 @@ def run_factcheck_process(claim: str, cutoff_date: Optional[str], claim_id: str)
 
     try:
         # Call the factcheck function
-        factcheck(claim, cutoff_date, identifier=claim_id)
+        factcheck(
+            claim,
+            cutoff_date,
+            identifier=claim_id,
+            model_name=os.getenv("FACTCHECK_MODEL_NAME")
+        )
         
         # Ensure the completion marker is added
         report_path = OUTPUT_DIR / claim_id / "report.json"

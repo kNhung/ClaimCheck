@@ -23,11 +23,10 @@ Evidence:
 {url}
 {search_result}
 
-Record:
+BẢN GHI:
 {record}
 
-
-Your Summary:
+In ra TÓM TẮT ngắn gọn thông tin liên quan YÊU CẦU theo QUY TẮC ở trên:
 """
 
 def summarize(claim, search_result, url, record, think=True):

@@ -15,12 +15,17 @@ def csv_to_json(csv_path):
 if __name__ == "__main__":
     # Kiểm tra tham số
     if len(sys.argv) < 3:
-        print("Usage: python fact-check.py <path_to_file> <num_records>")
+        print("Usage: python fact-check.py <path_to_file> <num_records> [model_name]")
         print("Supported formats: .json, .csv")
         sys.exit(1)
 
     input_path = sys.argv[1]
     num_records = int(sys.argv[2])
+    model_name = None
+    if len(sys.argv) >= 4:
+        model_name = sys.argv[3].strip()
+    if not model_name:
+        model_name = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
 
     # Determine file type and load data
     if input_path.endswith('.json'):
@@ -47,7 +52,6 @@ if __name__ == "__main__":
         date = record.get("date", now_vn.strftime("%d-%m-%Y"))
         claim_id = str(record.get("id", i + 1))  # Get id from input or use index+1
         expected_label = record.get("labels", None)  # Changed from "labels" to "label"
-
         
         print(f"\n=== [{i+1}/{num_records}] Fact-checking: {claim}")
         print(f"Expected label: {expected_label}")
@@ -58,10 +62,10 @@ if __name__ == "__main__":
             claim, 
             date, 
             identifier=identifier,
-            expected_label=expected_label
+            expected_label=expected_label,
+            model_name=model_name
         )
         
-
         # Get content from report for CSV
         evidence, reasoning, verdict_text, justification = report_writer.get_report_content()
         
@@ -77,7 +81,8 @@ if __name__ == "__main__":
             report_path=report_path,
             csv_path=csv_path,
             expected_label=expected_label,
-            claim_id=claim_id  # Pass the id
+            claim_id=claim_id,  # Pass the id
+            model_name=model_name
         )
     # After all samples processed: compute metrics once for the run
     csv_path = os.path.join(os.getcwd(), 'reports', run_identifier, 'detailed_results.csv')
@@ -89,6 +94,12 @@ if __name__ == "__main__":
             print(f"Precision: {metrics['precision']:.4f}")
             print(f"Recall: {metrics['recall']:.4f}")
             print(f"F1-score: {metrics['f1']:.4f}")
+            if metrics.get('classification_report'):
+                print("\nClassification report (per class):")
+                print(metrics['classification_report'])
+            model_list = metrics.get('model_names')
+            if model_list:
+                print(f"Models in this run: {', '.join(model_list)}")
             print(f"Metrics written to: {os.path.join('reports', run_identifier, 'metrics.txt')}")
         else:
             print("Metrics could not be calculated (insufficient / invalid label data).")

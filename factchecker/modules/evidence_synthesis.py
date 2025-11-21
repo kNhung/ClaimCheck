@@ -28,7 +28,8 @@ web_search("New Zealand Food Bill 2020")
 
 Record:
 {record}
-Your Analysis:
+
+In ra KẾT QUẢ theo ĐỊNH DẠNG ĐẦU RA ở trên:
 """
 
 def develop(record, think=True):

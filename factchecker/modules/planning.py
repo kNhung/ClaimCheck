@@ -17,10 +17,10 @@ Quy tắc:
 Hành động hợp lệ:
 {valid_actions}
 
-Ví dụ:
+ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (thay ... bằng từ, cụm từ, hoặc thực thể từ Yêu cầu):
 {examples}
 
-Record:
+BẢN GHI:
 {record}
 
 Your Actions:
