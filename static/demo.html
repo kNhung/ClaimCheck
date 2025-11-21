@@ -1,0 +1,759 @@
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automatic Fact Checker</title>
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,800;0,900;1,400;1,500;1,600;1,800;1,900&amp;display=swap" rel="stylesheet">
+    <style>
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        body {
+            overflow-x: visible;
+            position: relative;
+        }
+
+        .main.container {
+            margin-top: 2em;
+            max-width: 70em;
+        }
+
+        .ui.main.container .ui.header {
+            font-family: 'Montserrat', sans-serif;
+        }
+
+        .ui.main.container:first-child .ui.header {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 2.25em;
+            text-align: center;
+        }
+
+        .ui.main.container .ui.header span {
+            font-weight: 500;
+            vertical-align: middle;
+        }
+
+        .main.menu {
+            margin-top: 5em;
+            border-radius: 0;
+            border: none;
+            box-shadow: none;
+            transition: box-shadow 0.5s ease,
+                padding 0.5s ease;
+            z-index: 981 !important;
+        }
+
+        .main.menu .item img.logo {
+            margin-right: 1.5em;
+        }
+
+        .main.menu .item::before {
+            background: unset;
+        }
+
+        .main.menu .item {
+            border: none !important;
+            font-weight: bolder;
+        }
+
+        .home-link {
+            cursor: pointer;
+        }
+
+        .main.menu.fixed .item:first-child::after {
+            font-family: 'Montserrat', sans-serif;
+            font-weight: 800;
+            content: "ClaimLens";
+        }
+
+        .main.menu.fixed {
+            background-color: #FFFFFF;
+            border: 1px solid #DDD;
+            box-shadow: 0 0.2em 0.3em rgba(0, 0, 0, 0.2);
+        }
+
+        .main-content-container {
+            min-height: calc(100% - 500px);
+        }
+
+        .ui.footer.segment {
+            margin: 5em 0 0;
+            padding: 5em 0;
+        }
+
+        .ui.inverted.link.list {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .ui.inverted.link.list table {
+            width: 70%;
+        }
+
+        .ui.inverted.link.list td {
+            width: 50%;
+            vertical-align: top;
+        }
+
+
+        .title {
+            font-family: 'Montserrat', sans-serif;
+            font-size: 40px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .subtitle {
+            font-size: 0.51em;
+            font-weight: 500;
+            text-align: center;
+            color: #000000;
+        }
+        
+        .fact-check-header {
+            text-align: center;
+            margin-bottom: 3rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .claim-input {
+            margin-bottom: 2rem;
+        }
+        
+        .results-section {
+            margin-top: 2rem;
+        }
+        
+        .web-results {
+            /* width: 30%; */
+            /* float: left; */
+            overflow-x: hidden;
+            padding: 1rem;
+            /* margin-right: 2rem; */
+            box-sizing: border-box;
+            max-height: 600px;
+        }
+        
+        .evidence-card {
+            margin-bottom: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            width: 100% !important;
+        }
+        
+        .evidence-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .evidence-summary {
+            display: none;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .expand-icon {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            color: #888;
+        }
+        
+        .evidence-analysis {
+            /* width: 70%; */
+            /* float: right; */
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+        
+        /* .verdict-section {
+            clear: both;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        } */
+        
+        /* .verdict-supported {
+            background: linear-gradient(135deg, #d4edda, #c3e6cb);
+            border-color: #28a745;
+        }
+        
+        .verdict-refuted {
+            background: linear-gradient(135deg, #f8d7da, #f1b0b7);
+            border-color: #dc3545;
+        }
+        
+        .verdict-conflicting {
+            background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+            border-color: #ffc107;
+        }
+        
+        .verdict-insufficient {
+            background: linear-gradient(135deg, #e2e3e5, #d1d3d4);
+            border-color: #6c757d;
+        }
+         */
+        .loading-section {
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .progress-step {
+            opacity: 0.5;
+            transition: opacity 0.3s ease;
+        }
+        
+        .progress-step.active {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="ui main container" style="margin:2rem;">
+        <div class="row d-flex align-items-center justify-content-center">
+            <!-- <i class="search icon"></i> -->
+            <h1 class="title col-auto">ClaimCheck | <span class="subtitle">Verify claims with AI-powered fact-checking</span></h1>
+        </div>
+    </div>
+    <div class="main-container">
+        <div class="claim-input">
+            <form class="ui form" id="factCheckForm" style="width: 100%;">
+                <div class="fields" style="width: 100%;">
+                    <div class="eight wide field">
+                        <label for="claimInput">Enter your claim to fact-check:</label>
+                        <input type="text" id="claimInput" placeholder="e.g., Joe Biden voted for the Iraq war" required>
+                    </div>
+                    <div class="four wide field">
+                        <label for="cutoffDate">Cutoff date:</label>
+                        <input type="date" id="cutoffDate" title="Cutoff Date">
+                    </div>
+                    <div class="four wide field">
+                        <label>&nbsp;</label>
+                        <button class="ui primary button" type="submit" id="submitBtn" style="width: 100%;">
+                            <i class="search icon"></i>
+                            Fact Check
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div class="ui steps" id="progressSteps" style="display: none;">
+            <div class="step progress-step" id="step-search">
+                <i class="search icon"></i>
+                <div class="content">
+                    <div class="title">Web Search</div>
+                    <div class="description">Finding relevant sources</div>
+                </div>
+            </div>
+            <div class="step progress-step" id="step-analysis">
+                <i class="file alternate outline icon"></i>
+                <div class="content">
+                    <div class="title">Evidence Analysis</div>
+                    <div class="description">Analyzing sources</div>
+                </div>
+            </div>
+            <div class="step progress-step" id="step-verdict"> 
+                <i class="check circle icon"></i>
+                <div class="content">
+                    <div class="title">Verdict</div>
+                    <div class="description">Final assessment</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading-section" id="loadingSection" style="display: none;">
+            <div class="ui segment" style="margin: 2em 0; height:200px;">
+                <div class="ui active inverted dimmer">
+                    <div class="ui medium text loader">Processing your claim...</div>
+                </div>
+                <p></p>
+                <p></p>
+            </div>
+        </div>
+
+        <div class="results-section" id="resultsSection" style="display: none;">
+            <div class="ui grid">
+                <!-- First row: Verdict (full width) -->
+                <div class="row">
+                    <div class="sixteen wide column">
+                        <div class="verdict-section" id="verdictSection" style="display: none;">
+                            <h3 class="ui header">
+                                <i class="gavel icon"></i>
+                                Final Verdict
+                            </h3>
+                            <div class="ui large message verdict-supported" id="verdictMessage" style="cursor: pointer;">
+                                <div class="header" id="verdictHeader">Checking...</div>
+                                <div id="verdictJustification" style="display: none; margin: 1rem;"></div>
+                            <i class="expand-icon icon up angle"></i><i class="expand-icon angle up icon"></i></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Second row: Web Results (4 wide) + Evidence Analysis (12 wide) -->
+                <div class="ui divider"></div>
+                <div class="row">
+                    <div class="six wide column">
+                        <h3 class="ui header">
+                            <i class="world icon"></i>
+                            Web Search Results
+                        </h3>
+                        <!-- Loader for web search -->
+                        <div id="webResultsLoader" style="margin: 1em 0px; display: none;">
+                            <div class="ui segment" style="height:200px;">
+                                <div class="ui active inverted dimmer">
+                                    <div class="ui medium text loader">Searching the web for evidence...</div>
+                                </div>
+                                <p></p>
+                                <p></p>
+                            </div>
+                        </div>
+                        <div class="web-results" id="webResults" style="display: none;"> 
+                            <div class="ui cards" id="webResultsCards"></div>
+                        </div>
+                    </div>
+
+                    <div class="ten wide column">
+                        <h3 class="ui header">
+                            <i class="file alternate outline icon"></i>
+                            Evidence Analysis
+                        </h3>
+                        <!-- Evidence analysis loader -->
+                        <div id="evidenceLoader" style="display: none; margin-bottom: 1em;">
+                            <div class="ui segment" style="height:200px;">
+                                <div class="ui active inverted dimmer">
+                                    <div class="ui medium text loader" id="evidenceLoaderText">Waiting for evidence collection...</div>
+                                </div>
+                                <p></p>
+                                <p></p>
+                            </div>
+                        </div>
+                        <div class="evidence-analysis" id="evidenceSection" style="display: none;">
+                            <div class="ui segment" id="evidenceContent"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentClaimId = null;
+        let eventSource = null;
+
+        document.getElementById('cutoffDate').valueAsDate = new Date();
+
+        document.getElementById('factCheckForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const claim = document.getElementById('claimInput').value.trim();
+            const cutoffDate = document.getElementById('cutoffDate').value;
+            
+            if (!claim) return;
+
+            resetUI();
+            showLoading();
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/factcheck', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        claim: claim,
+                        cutoff_date: cutoffDate
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to submit claim');
+                }
+
+                const data = await response.json();
+                currentClaimId = data.claim_id;
+                startStreaming();
+
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to submit claim. Please try again.');
+            }
+        });
+
+        function resetUI() {
+            document.getElementById('resultsSection').style.display = 'none';
+            document.getElementById('progressSteps').style.display = 'none';
+            document.getElementById('loadingSection').style.display = 'none';
+            document.getElementById('verdictSection').style.display = 'none';
+            document.getElementById('webResults').style.display = 'none';
+            document.getElementById('evidenceSection').style.display = 'none';
+            document.getElementById('verdictHeader').innerHTML = 'Checking...';
+            document.getElementById('verdictJustification').style.display = 'none';
+            // Show web search loader
+            document.getElementById('webResultsLoader').style.display = 'block';
+            document.getElementById('webResultsCards').innerHTML = '';
+            // Show evidence analysis section and its loader
+            // document.getElementById('evidenceSection').style.display = 'block';
+            document.getElementById('evidenceLoader').style.display = 'block';
+            document.getElementById('evidenceLoaderText').textContent = 'Waiting for evidence collection...';
+            document.getElementById('evidenceContent').innerHTML = '';
+
+            document.querySelectorAll('.progress-step').forEach(step => {
+                step.classList.remove('active', 'completed');
+            });
+
+            document.getElementById('progressSteps').scrollIntoView({ behavior: 'smooth' })
+        }
+
+        function showLoading() {
+            document.getElementById('loadingSection').style.display = 'block';
+            document.getElementById('progressSteps').style.display = 'flex';
+            document.getElementById('resultsSection').style.display = 'block';
+            document.getElementById('verdictSection').style.display = 'block';
+        }
+
+        function startStreaming() {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            eventSource = new EventSource(`http://127.0.0.1:8000/stream-report/${currentClaimId}`);
+            
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.status === 'connected') {
+                        console.log('Stream connected for claim:', data.claim_id);
+                        return;
+                    }
+                    
+                    if (data.status === 'error') {
+                        showStreamError(data.error);
+                        return;
+                    }
+                    
+                    if (data.status === 'complete' || data.status === 'process_ended') {
+                        console.log('Fact-checking process completed');
+                        updateUI(data);
+                        eventSource.close();
+                        eventSource = null;
+                        return;
+                    }
+                    
+                    updateUI(data);
+                    
+                } catch (error) {
+                    console.error('Error parsing stream data:', error, 'Raw data:', event.data);
+                }
+            };
+
+            eventSource.onerror = function(event) {
+                console.error('Stream connection error:', event);
+                showStreamError('Connection lost while streaming results.');
+                if (eventSource) {
+                    eventSource.close();
+                    eventSource = null;
+                }
+            };
+
+            eventSource.onopen = function(event) {
+                console.log('Stream connection opened successfully');
+            };
+        }
+
+        function updateUI(data) {
+            document.getElementById('resultsSection').style.display = 'block';
+            document.getElementById('loadingSection').style.display = 'none';
+
+            console.log('Received data:', data);
+
+            if (data.actions && Object.keys(data.actions).length > 0) {
+                updateWebSearchResults(data.actions);
+                activateStep('step-search');
+            }
+
+            if (data.reasoning && data.reasoning.length > 0) {
+                updateEvidenceAnalysis(data.reasoning);
+                activateStep('step-analysis');
+            }
+
+            if (data.verdict) {
+                updateVerdict(data.verdict.trim(), data.judged_verdict ? data.judged_verdict.trim() : '');
+                activateStep('step-verdict');
+                if (eventSource) {
+                    eventSource.close();
+                    eventSource = null;
+                }
+            }
+
+            // Need to handle final justification...
+        }
+
+        function updateWebSearchResults(actions) {
+            const webResultsSection = document.getElementById('webResults');
+            const webResultsCards = document.getElementById('webResultsCards');
+            const webResultsLoader = document.getElementById('webResultsLoader');
+            const evidenceLoader = document.getElementById('evidenceLoader');
+            const evidenceLoaderText = document.getElementById('evidenceLoaderText');
+
+            webResultsSection.style.display = 'block';
+            webResultsLoader.style.display = 'none'; // Hide loader when results arrive
+            webResultsCards.innerHTML = '';
+
+            // Count total and summarized articles
+            let total = 0;
+            let withSummary = 0;
+
+            Object.entries(actions).forEach(([actionKey, actionData]) => {
+                if (actionData.action === 'web_search' && actionData.results) {
+                    Object.entries(actionData.results).forEach(([url, result]) => {
+                        total += 1;
+                        if (result.summary && result.summary.trim().length > 0) {
+                            withSummary += 1;
+                        }
+                        const card = createWebResultCard(url, result);
+                        webResultsCards.appendChild(card);
+                    });
+                }
+            });
+
+            // Show/hide evidence loader
+            if (total > 0 && withSummary <= total) {
+                evidenceLoader.style.display = 'block';
+                evidenceLoaderText.textContent = `Waiting for evidence collection (${withSummary}/${total})`;
+            } 
+            // else {
+            //     evidenceLoader.style.display = 'none';
+            // }
+        }
+
+        function createWebResultCard(url, result) {
+            // Remove summary lines which only contain backticked text
+            let summaryLines = result.summary ? result.summary.split('\n').filter(line => !/^`[^`]+`$/.test(line.trim())).join('\n') : '';
+
+            // If "Conclusion: ..." exists at the start of any line, remove everything from that line onwards
+            // Regex: \n[\*]*Conclusion[ ]*:[\*]*; Ignore case and leading/trailing spaces
+            const conclusionIndex = summaryLines.search(/\n[\*]*(Conclusion|Verdict)[ *]*:[\*]*/i);
+            if (conclusionIndex !== -1) {
+                summaryLines = summaryLines.substring(0, conclusionIndex).trim();
+            }
+
+            const card = document.createElement('div');
+            card.className = 'card evidence-card';
+            card.innerHTML = `
+                <div class="content">
+                    <div class="header">
+                        <a href="${url}" target="_blank" class="ui blue">
+                            <i class="external alternate icon"></i>
+                            ${new URL(url).hostname}
+                        </a>
+                    </div>
+                    <div class="description">
+                        ${result.snippet ? result.snippet.trim() : 'No snippet available'}
+                    </div>
+                    ${summaryLines ? `
+                        <div class="evidence-summary">
+                            <div class="ui small header">Evidence Summary:</div>
+                            <div class="content">${marked.parse(summaryLines.trim())}</div>
+                        </div>
+                        <i class="expand-icon angle down icon"></i>
+                    ` : ''}
+                </div>
+            `;
+
+            // Only toggle when clicking the expand icon or card background, not inside the summary
+            card.addEventListener('click', function(event) {
+                const summary = card.querySelector('.evidence-summary');
+                const icon = card.querySelector('.expand-icon');
+                // If the click is inside the evidence-summary, do nothing (allow text selection)
+                if (summary && summary.contains(event.target)) {
+                    return;
+                }
+                // If the click is on the expand icon or card background, toggle
+                if (summary) {
+                    if (summary.style.display === 'none' || !summary.style.display) {
+                        summary.style.display = 'block';
+                        if (icon) {
+                            icon.classList.remove('angle', 'down');
+                            icon.classList.add('angle', 'up');
+                        }
+                    } else {
+                        summary.style.display = 'none';
+                        if (icon) {
+                            icon.classList.remove('angle', 'up');
+                            icon.classList.add('angle', 'down');
+                        }
+                    }
+                }
+            });
+
+            return card;
+        }
+
+        function updateEvidenceAnalysis(reasoning) {
+            const evidenceSection = document.getElementById('evidenceSection');
+            const evidenceContent = document.getElementById('evidenceContent');
+            const evidenceLoader = document.getElementById('evidenceLoader');
+            
+            let reasoningText = Array.isArray(reasoning) ? reasoning[reasoning.length-1] : reasoning;
+
+            // Replace any line that only contains a backticked text
+            const lines = reasoningText.trim().split('\n');
+
+            let filteredLines = lines.filter(line => !/^`[^`]+`$/.test(line.trim()));
+
+            let cleanReasoningText = reasoningText = filteredLines.join('\n');
+
+            // If the reasoningText has ```markdown ... ``` blocks, we need to remove them too
+            cleanReasoningText = cleanReasoningText.replace(/```[\s\S]*?```[\s]*?$/g, '').trim();
+
+            // If the cleaned reasoning text is empty, use the original reasoning text
+            // This handles cases where all lines were backticked text or markdown blocks
+            if (cleanReasoningText.length === 0) {
+                cleanReasoningText = reasoningText;
+            }
+
+            const actionIndex = cleanReasoningText.search(/\n[\*]*(.*Action)[s *]*:[\*]*/i);
+            if (actionIndex !== -1) {
+                cleanReasoningText = cleanReasoningText.substring(0, actionIndex).trim();
+            }
+
+            const cleanReasoningLines = cleanReasoningText.split('\n');
+            if (cleanReasoningLines.length > 0 && cleanReasoningLines[cleanReasoningLines.length - 1].split(' ').length === 1) {
+                // If the last line is a single word, remove it
+                cleanReasoningLines.pop();
+                cleanReasoningText = cleanReasoningLines.join('\n').trim();
+            }
+
+            evidenceContent.innerHTML = marked.parse(cleanReasoningText.trim());
+
+            evidenceSection.style.display = 'block';
+            evidenceLoader.style.display = 'none'; // Hide loader when analysis is ready
+            
+        }
+
+        function updateVerdict(verdict, justification) {
+            const verdictSection = document.getElementById('verdictSection');
+            const verdictMessage = document.getElementById('verdictMessage');
+            const verdictHeader = document.getElementById('verdictHeader');
+            const verdictJustification = document.getElementById('verdictJustification');
+            
+            verdictSection.style.display = 'block';
+            verdictHeader.innerHTML = verdict;
+
+            // Clean justification
+            if (justification) {
+                let justificationLines = justification.split('\n');
+                justificationLines = justificationLines.map(line => {
+                    if (/^`[^`]+`$/.test(line.trim())) {
+                        return '';
+                    }
+                    return line;
+                });
+                justification = justificationLines.join('\n').trim();
+            }
+
+            verdictJustification.innerHTML = justification ? marked.parse(justification) : '';
+
+            verdictMessage.classList.remove('verdict-supported', 'verdict-refuted', 'verdict-conflicting', 'verdict-insufficient');
+            switch (verdict.toLowerCase()) {
+                case 'supported':
+                    verdictMessage.classList.add('verdict-supported');
+                    verdictHeader.innerHTML = '<i class="check circle green icon"></i>Supported';
+                    break;
+                case 'refuted':
+                    verdictMessage.classList.add('verdict-refuted');
+                    verdictHeader.innerHTML = '<i class="times circle red icon"></i>Refuted';
+                    break;
+                case 'conflicting evidence/cherrypicking':
+                    verdictMessage.classList.add('verdict-conflicting');
+                    verdictHeader.innerHTML = '<i class="exclamation triangle yellow icon"></i>Conflicting Evidence';
+                    break;
+                case 'not enough evidence':
+                    verdictMessage.classList.add('verdict-insufficient');
+                    verdictHeader.innerHTML = '<i class="question circle grey icon"></i>Not Enough Evidence';
+                    break;
+            }
+
+            // Remove previous event listeners by cloning (prevents stacking)
+            const newVerdictMessage = verdictMessage.cloneNode(true);
+            verdictMessage.parentNode.replaceChild(newVerdictMessage, verdictMessage);
+
+            // Remove any existing expand/collapse icons
+            newVerdictMessage.querySelectorAll('.expand-icon').forEach(icon => icon.remove());
+
+            // Add the expand/collapse arrow icon
+            let arrowIcon = document.createElement('i');
+            arrowIcon.className = 'expand-icon angle up icon'; // default to open
+            newVerdictMessage.appendChild(arrowIcon);
+
+            // Always show justification by default
+            const newVerdictJustification = newVerdictMessage.querySelector('#verdictJustification');
+            newVerdictJustification.style.display = 'block';
+
+            // Only toggle when clicking outside the justification (consistent with web results)
+            newVerdictMessage.addEventListener('click', function(event) {
+                if (newVerdictJustification.contains(event.target)) {
+                    return; // allow highlight/copy, don't toggle
+                }
+                if (newVerdictJustification.style.display === 'none' || !newVerdictJustification.style.display) {
+                    newVerdictJustification.style.display = 'block';
+                    arrowIcon.classList.remove('angle', 'down');
+                    arrowIcon.classList.add('angle', 'up');
+                } else {
+                    newVerdictJustification.style.display = 'none';
+                    arrowIcon.classList.remove('angle', 'up');
+                    arrowIcon.classList.add('angle', 'down');
+                }
+            });
+
+            // Prevent click inside justification from bubbling up (so selection works)
+            newVerdictJustification.addEventListener('click', function(event) {
+                event.stopPropagation();
+            });
+        }
+
+        function activateStep(stepId) {
+            document.getElementById(stepId).classList.add('active');
+        }
+
+        function showError(message) {
+            document.getElementById('loadingSection').innerHTML = `
+                <div class="ui negative message">
+                    <div class="header">Error</div>
+                    <p>${message}</p>
+                    <button class="ui button" onclick="location.reload()">Try Again</button>
+                </div>
+            `;
+        }
+
+        function showStreamError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'ui warning message';
+            errorDiv.innerHTML = `
+                <div class="header">Stream Connection Issue</div>
+                <p>${message}</p>
+                <p>The fact-checking process may still be running. You can refresh the page to check for results.</p>
+            `;
+            document.getElementById('resultsSection').appendChild(errorDiv);
+        }
+
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+    </script>
+
+</body></html>
