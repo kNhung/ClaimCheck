@@ -3,10 +3,16 @@ from .llm import prompt_ollama
 
 plan_prompt = """
 Nhiệm vụ: Lên kế hoạch tìm thêm bằng chứng để kiểm chứng phát biểu (Claim).
-
+Claim: {claim}
 Bạn CHỈ ĐƯỢC phép in ra danh sách các hành động theo đúng cú pháp bên dưới.
 Mỗi hành động phải được in trong cùng một khối mã (```) duy nhất.
 Không được giải thích, không được in văn bản tự nhiên, không thêm mô tả.
+
+Quy tắc:
+- Hành động đầu tiên *bắt buộc* phải là:
+  web_search("{claim}")
+- Không thêm văn bản khác ngoài khối mã hành động.
+- Không được thêm link thủ công hoặc hướng dẫn.
 
 Hành động hợp lệ:
 {valid_actions}
@@ -14,14 +20,8 @@ Hành động hợp lệ:
 Ví dụ:
 {examples}
 
-Quy tắc:
-- Luôn luôn thực hiện web_search("{claim}")
-- Không thêm văn bản khác ngoài khối mã hành động.
-- Không được thêm link thủ công hoặc hướng dẫn.
-
 Record:
 {record}
-Claim: {claim}
 
 Your Actions:
 """

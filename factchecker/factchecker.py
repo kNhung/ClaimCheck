@@ -121,6 +121,7 @@ class FactChecker:
 
                     def process_result(result):
                         scraped_content = web_scraper.scrape_url_content(result)
+                        
                         summary = evidence_summarization.summarize(self.claim, scraped_content, result, record=self.get_report())
 
                         if "NONE" in summary:

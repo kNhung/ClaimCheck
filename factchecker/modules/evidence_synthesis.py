@@ -20,18 +20,11 @@ Tuân thủ:
 Lưu ý kỹ thuật: Giữ nguyên cú pháp chính xác khi in ra hành động, ví dụ web_search("...") và token NONE (không dịch).
 
 Valid Actions:
-geolocate: Xác định quốc gia nơi ảnh được chụp bằng ID ảnh.
-reverse search: Tìm kiếm ảnh ngược trên web để tìm ảnh tương tự.
 web search: Tìm kiếm web mở cho các trang liên quan.
-image search: Tìm hình ảnh liên quan cho một truy vấn.
-NONE: Không đề xuất hành động nào.
 
 Ví dụ:
-geolocate(<image:k>)
-reverse_search(<image:k>)
 web_search("New Zealand Food Bill 2020")
-image_search("China officials white suits carry people")
-NONE
+
 
 Record:
 {record}
