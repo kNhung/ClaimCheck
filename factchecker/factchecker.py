@@ -187,10 +187,16 @@ class FactChecker:
 
                     def process_result(result):
                         scraped_content = web_scraper.scrape_url_content(result)
+                        
+                        # Handle None or empty scraped content
+                        if scraped_content is None or (isinstance(scraped_content, str) and not scraped_content.strip()):
+                            print(f"No content scraped from: {result}")
+                            return None
+                        
                         summary = retriver_rav.get_top_evidence(self.claim, scraped_content)
 
-                        if "NONE" in summary:
-                            print(f"Skipping summary for evidence: {result}")
+                        if "NONE" in summary or summary == "No evidence found.":
+                            print(f"Skipping summary for evidence: {result} (no evidence found)")
                             return None
 
                         print(f"Web search result: {result}, Summary: {summary}")

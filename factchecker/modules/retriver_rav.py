@@ -70,7 +70,20 @@ def scrape_text(url):
         return ""
 
 def chunk_text(text, chunk_size=50):
-    sentences = sent_tokenize(text)
+    """Chunk text into smaller pieces. Handles None and empty strings."""
+    if text is None:
+        return []
+    if not isinstance(text, str):
+        text = str(text)
+    if not text.strip():
+        return []
+    
+    try:
+        sentences = sent_tokenize(text)
+    except (TypeError, AttributeError) as e:
+        # Fallback if sent_tokenize fails
+        sentences = text.split('. ')
+    
     chunks = []
     current_chunk = ""
     for sent in sentences:
@@ -83,6 +96,10 @@ def chunk_text(text, chunk_size=50):
     return chunks
 
 def get_top_evidence(claim, text, top_k_chunks=5):
+    """Get top evidence from text. Handles None and empty text."""
+    if text is None or (isinstance(text, str) and not text.strip()):
+        return "No evidence found."
+    
     all_chunks = chunk_text(text)
 
     if not all_chunks:
