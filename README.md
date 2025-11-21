@@ -12,6 +12,21 @@ ClaimCheck is a fact-checking system that processes claims and verifies their ve
 
 2. Get your API key from [SerpAPI](https://serper.dev/).
 
+3. Create a `.env` file in the project root directory and fill in the following environment variables:
+
+-`SERPER_API_KEY`: API key from Serper
+- `FACTCHECKER_MODEL_NAME`: The Ollama model name used for fact-checking (default: "qwen2.5:0.5b")
+- `FACTCHECKER_MAX_ACTIONS`: Maximum number of actions to run (default: 2)
+
+Example `.env` file content:
+
+```
+FACTCHECKER_MODEL_NAME=qwen2.5:0.5b
+FACTCHECKER_MAX_ACTIONS=2
+```
+
+**Note**: Ensure the `.env` file is not committed to Git (add it to `.gitignore`).
+
 ## Installation
 1. Clone the repository:
     ```bash
@@ -24,20 +39,18 @@ ClaimCheck is a fact-checking system that processes claims and verifies their ve
     pip install -r requirements.txt
     ```
 
-3. Update the API keys in the code:
-   - Open `claim_matching.py` and update the Google Cloud API key and CSE ID.
-   - Open `search.py` and update the SerpAPI key.
 
 ## Usage
-To run the fact-checking system from the command line, use the `fact-check.py` script. It takes two arguments: the path to the JSON file containing the claims and the number of records to process.
+To run the fact-checking system from the command line, use the `fact-check.py` script. It takes three arguments: the path to the JSON file containing the claims, the number of records to process and model name.
 
 ### Command Line Arguments:
 - `json_path`: Path to the AVeriTeC JSON file.
 - `num_records`: Number of claims to run.
+- `model_name`: Name of the model.
 
 ### Example:
 ```bash
-python fact-check.py /path/to/json/file.json 5
+python fact-check.py /path/to/json/file.json 5 qwen2.5:0.5b
 ```
 
 Replace `/path/to/json/file.json` with the actual path to your AVeriTeC JSON file and `5` with the number of records you want to process. You can find AVeriTeC JSON files [here](https://fever.ai/dataset/averitec.html).
@@ -46,20 +59,11 @@ Replace `/path/to/json/file.json` with the actual path to your AVeriTeC JSON fil
 ## Streamlit UI (Tiếng Việt)
 
 Bạn có thể chạy giao diện đơn giản để nhập claim, chọn ngày cắt (cut-off) và xem quá trình suy luận, bằng chứng, kết luận.
+You can run simple UI to input claim, choose cut-off date then have verdict and evidence.
 
-### Chạy ứng dụng
-
-1) Cài dependencies (đã bao gồm Streamlit):
-```bash
-pip install -r requirements.txt
-```
-
-2) Chạy ứng dụng:
 ```bash
 streamlit run app.py
 ```
-
 3) Mở trình duyệt theo URL mà Streamlit hiển thị (thường là http://localhost:8501). Nhập claim, chọn ngày, và nhấn "Chạy kiểm chứng".
-
-Ứng dụng sẽ lưu báo cáo tại thư mục `reports/<timestamp>/` gồm `report.md`, `evidence.md`, `report.json` và thư mục `images/` nếu có.
-
+4) Open streamlit UI (often at http://localhost:8501)
+App will save report at `reports/<timestamp>/ including `report.md`, `evidence.md`, `report.json`. 
