@@ -40,8 +40,20 @@ def append_iteration_actions(iteration, actions):
         print(f"Error appending actions: {e}")
 
 def append_evidence(evidence):
+    """Append evidence to report, avoiding duplicates"""
     try:
-        with open(REPORT_PATH, "a") as f:
+        if not evidence or not evidence.strip():
+            return
+        
+        # Check if evidence already exists in report to avoid duplicates
+        if REPORT_PATH and os.path.exists(REPORT_PATH):
+            with open(REPORT_PATH, "r", encoding='utf-8') as f:
+                existing_content = f.read()
+                # Simple check: if evidence text already exists, skip
+                if evidence.strip() in existing_content:
+                    return
+        
+        with open(REPORT_PATH, "a", encoding='utf-8') as f:
             f.write(evidence + "\n\n")
     except Exception as e:
         print(f"Error appending evidence: {e}")
@@ -54,10 +66,29 @@ def append_raw(evidence):
         print(f"Error appending evidence: {e}")
 
 def append_reasoning(reasoning):
+    """Append reasoning to report, avoiding exact duplicates"""
     try:
-        with open(REPORT_PATH, "a") as f:
+        if not reasoning or not reasoning.strip():
+            return
+        
+        reasoning_clean = reasoning.strip()
+        
+        # Check if this exact reasoning already exists to avoid duplicates
+        if REPORT_PATH and os.path.exists(REPORT_PATH):
+            with open(REPORT_PATH, "r", encoding='utf-8') as f:
+                existing_content = f.read()
+                # Check if this reasoning text already exists (allowing for minor variations)
+                if reasoning_clean in existing_content:
+                    # Check if it's in a Reasoning section (not just mentioned elsewhere)
+                    if f"### Reasoning" in existing_content:
+                        reasoning_sections = existing_content.split("### Reasoning")
+                        for section in reasoning_sections[1:]:  # Skip first part before any Reasoning
+                            if reasoning_clean in section[:len(reasoning_clean) + 100]:  # Check near start of section
+                                return  # Duplicate found, skip
+        
+        with open(REPORT_PATH, "a", encoding='utf-8') as f:
             f.write("### Reasoning\n\n")
-            f.write(reasoning.strip() + "\n\n")
+            f.write(reasoning_clean + "\n\n")
     except Exception as e:
         print(f"Error appending reasoning: {e}")
 

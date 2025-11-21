@@ -1,4 +1,4 @@
-from .llm import prompt_ollama
+from .llm import prompt_groq
 
 plan_prompt = """HƯỚNG DẪN
 Kiến thức hiện tại vẫn chưa đủ để đánh giá tính xác thực của YÊU CẦU.
@@ -47,5 +47,5 @@ def plan(claim, record="", examples="", actions=None, think=True):
     valid_actions = "\n".join([f"{a}: {action_definitions[a]['desc']}" for a in actions])
     examples = "\n".join([f"{action_definitions[a]['example']}" for a in actions])
     prompt = plan_prompt.format(valid_actions=valid_actions, examples=examples, record=record, claim=claim)
-    response = prompt_ollama(prompt, think=think)
+    response = prompt_groq(prompt, think=think)
     return response

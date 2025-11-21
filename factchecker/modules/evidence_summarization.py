@@ -1,4 +1,4 @@
-from .llm import prompt_ollama
+from .llm import prompt_groq
 
 summarize_prompt = """HƯỚNG DẪN
 Bạn là trợ lý kiểm chứng thông tin. Nhiệm vụ của bạn là đọc KẾT QUẢ TÌM KIẾM và TÓM TẮT ngắn gọn những thông tin LIÊN QUAN đến YÊU CẦU dưới đây.
@@ -35,5 +35,5 @@ def summarize(claim, search_result, url, record, think=True):
         record=record,
         url=url
     )
-    return prompt_ollama(prompt, think=think)
+    return prompt_groq(prompt, think=think)
     

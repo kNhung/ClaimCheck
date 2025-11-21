@@ -1,9 +1,11 @@
 from factchecker.factchecker import factcheck
 from factchecker.report import report_writer
+from factchecker.modules import retriver_rav
 import sys
 import json
 import pandas as pd
 import os
+import gc
 from datetime import datetime, timezone, timedelta
     
 def csv_to_json(csv_path):
@@ -84,6 +86,9 @@ if __name__ == "__main__":
             claim_id=claim_id,  # Pass the id
             model_name=model_name
         )
+        
+        # Force garbage collection after each claim to free memory
+        gc.collect()
     # After all samples processed: compute metrics once for the run
     csv_path = os.path.join(os.getcwd(), 'reports', run_identifier, 'detailed_results.csv')
     if os.path.exists(csv_path):
