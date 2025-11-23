@@ -39,9 +39,12 @@ st.markdown(
 
 # --- Inputs ---
 with st.sidebar:
+    st.markdown("### Kiểm chứng")
     claim = st.text_area("Câu cần kiểm chứng", placeholder="Ví dụ: Ông Putin nói Nga sẽ phản ứng mạnh nếu bị Tomahawk tấn công")
     cutoff = st.date_input("Mốc thời gian (ngày)", value=date.today(), format="DD/MM/YYYY")
     run_btn = st.button("Chạy kiểm chứng")
+    st.markdown("---")
+    st.markdown("### Lịch sử kiểm chứng")
 
 
 def _format_date(d: date) -> str:
@@ -106,7 +109,7 @@ if run_btn:
                 results = info.get("results") or {}
                 for url, item in results.items():
                     summary = item.get("summary")
-                    st.markdown(f"- [Nguồn]({url})")
+                    st.markdown(url)
                     st.write(summary)
         else:
             st.info("Chưa có bằng chứng.")
