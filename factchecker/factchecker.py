@@ -65,7 +65,7 @@ class FactChecker:
             "justification": None,
             "report_path": self.report_path
         }
-        self._max_actions_in_memory = 20  # Limit actions stored in memory
+        self._max_actions_in_memory = 5  # Limit actions stored in memory
         self.max_actions = max_actions
         
         # Cache for report content to avoid reading file multiple times
