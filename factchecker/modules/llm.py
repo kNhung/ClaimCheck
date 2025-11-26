@@ -1,9 +1,10 @@
-import openai
 import os
 import ollama
-import base64
+import dotenv
 
-DEFAULT_OLLAMA_MODEL = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
+dotenv.load_dotenv()
+
+DEFAULT_OLLAMA_MODEL = os.getenv("FACTCHECK_MODEL_NAME", "qwen2.5:1.5b")
 
 
 def set_default_ollama_model(model_name: str):
@@ -11,22 +12,8 @@ def set_default_ollama_model(model_name: str):
     if model_name:
         DEFAULT_OLLAMA_MODEL = model_name
 
-
 def get_default_ollama_model():
     return DEFAULT_OLLAMA_MODEL
-
-
-def prompt_gpt(prompt, model='o4-mini-2025-04-16'):
-    openai.api_key = os.getenv("OPENAI_API_KEY", "your-api-key-here")
-    client = openai.OpenAI(api_key=openai.api_key)
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return response.choices[0].message.content
 
 def prompt_ollama(prompt, model=None, think=True):
     if not model:

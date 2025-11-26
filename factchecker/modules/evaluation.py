@@ -1,54 +1,34 @@
 from .llm import prompt_ollama
 
 judge_prompt = """HƯỚNG DẪN
-Bạn là người kiểm chứng sự thật. Dựa vào BẢN GHI, hãy SUY LUẬN và đưa ra PHÁN QUYẾT cuối cùng cho YÊU CẦU (Claim).
+Bạn được cung cấp 1 bản ghi. Hãy đưa ra phán quyết theo các bước sau:
+1. Tóm tắt các ý chính từ BẢN GHI liên quan đến Claim.
+2. Tổng hợp các ý chính trên và đưa ra phán quyết về claim.
 
 PHÁN QUYẾT HỢP LỆ:
 {options}
 
-QUY TẮC:
+QUY TẮC CHỌN PHÁN QUYẾT:
 {rules}
-
-YÊU CẦU ĐẦU RA:
-- Gồm **hai phần duy nhất**, đúng thứ tự và đúng tiêu đề:
-### Justification:
-<1 đoạn SUY LUẬN ngắn, giải thích vì sao chọn phán quyết. Không lặp lại Claim. Không tóm tắt toàn bộ Record.>
-### Verdict:
-<1 từ trong {options}, đặt trong dấu backtick. Không thêm chữ khác.>
-
-QUAN TRỌNG: mục ### Verdict chỉ in DUY NHẤT MỘT TỪ, đặt trong dấu `...`.
-
-VÍ DỤ:
-### Justification:
-Bằng chứng trong Record đều xác nhận rằng Hà Nội là thủ đô của Việt Nam.
-### Verdict:
-`Supported`
 
 BẢN GHI:
 {record}
 
-In ra kết quả theo đúng ĐỊNH DẠNG và VÍ DỤ ở trên:
+In ra tóm tắt và phán quyết của bạn:
 """
 
 
 verdict_extraction_prompt = """HƯỚNG DẪN
-Bạn là người kiểm chứng sự thật.
-Hãy trích xuất duy nhất phán quyết cuối cùng từ KẾT LUẬN sau.
+Bạn được cung cấp 1 đoạn phân tích. Hãy in ra phán quyết từ đoạn KẾT LUẬN sau.
 Phán quyết phải thuộc một trong các tùy chọn dưới đây.
 
 TÙY CHỌN PHÁN QUYẾT:
 {options}
 
-QUY TẮC:
-{rules}
-
-ĐỊNH DẠNG ĐẦU RA:
-In DUY NHẤT MỘT TỪ PHÁN QUYẾT (KHÔNG thêm lời giải thích), đặt trong dấu backtick `...`.
-
 KẾT LUẬN:
 {conclusion}
 
-In ra KẾT QUẢ theo ĐỊNH DẠNG ĐẦU RA ở trên:
+In ra duy nhất 1 từ phán quyết:
 """
 
 def judge(record, decision_options, rules="", think=True):
