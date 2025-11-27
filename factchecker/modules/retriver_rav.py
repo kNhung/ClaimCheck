@@ -1,3 +1,6 @@
+import os
+from functools import lru_cache
+
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import numpy as np
 import nltk
@@ -5,6 +8,10 @@ import nltk
 from nltk.tokenize import sent_tokenize
 import requests
 from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
+
+_EMBED_DEVICE = os.getenv("FACTCHECKER_EMBED_DEVICE")
+_BI_MODEL_NAME = os.getenv("FACTCHECKER_BI_ENCODER", "paraphrase-multilingual-MiniLM-L12-v2")
+_CROSS_MODEL_NAME = os.getenv("FACTCHECKER_CROSS_ENCODER", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 def scrape_text(url):
     try:
@@ -29,6 +36,22 @@ def chunk_text(text, chunk_size=50):
         chunks.append(current_chunk.strip())
     return chunks
 
+@lru_cache(maxsize=1)
+def _get_bi_model(model_name=_BI_MODEL_NAME):
+    kwargs = {}
+    if _EMBED_DEVICE:
+        kwargs["device"] = _EMBED_DEVICE
+    return SentenceTransformer(model_name, **kwargs)
+
+
+@lru_cache(maxsize=1)
+def _get_cross_model(model_name=_CROSS_MODEL_NAME):
+    kwargs = {}
+    if _EMBED_DEVICE:
+        kwargs["device"] = _EMBED_DEVICE
+    return CrossEncoder(model_name, **kwargs)
+
+
 def get_top_evidence(claim, text, top_k_chunks=5):
     all_chunks = chunk_text(text)
 
@@ -36,7 +59,7 @@ def get_top_evidence(claim, text, top_k_chunks=5):
         return "No evidence found."
     
     # 3. Bi-encoder
-    bi_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    bi_model = _get_bi_model()
     claim_emb = bi_model.encode(claim)
     chunk_embs = bi_model.encode(all_chunks)
     claim_emb /= np.linalg.norm(claim_emb)
@@ -47,7 +70,7 @@ def get_top_evidence(claim, text, top_k_chunks=5):
     top_chunks = [all_chunks[i] for i in top_indices]
     
     # 4. Cross-encoder re-rank
-    cross_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    cross_model = _get_cross_model()
     pairs = [[claim, ch] for ch in top_chunks]
     scores = cross_model.predict(pairs)
     best_idx = np.argmax(scores)

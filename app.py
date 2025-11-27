@@ -39,9 +39,12 @@ st.markdown(
 
 # --- Inputs ---
 with st.sidebar:
+    st.markdown("### Kiểm chứng")
     claim = st.text_area("Câu cần kiểm chứng", placeholder="Ví dụ: Ông Putin nói Nga sẽ phản ứng mạnh nếu bị Tomahawk tấn công")
     cutoff = st.date_input("Mốc thời gian (ngày)", value=date.today(), format="DD/MM/YYYY")
     run_btn = st.button("Chạy kiểm chứng")
+    st.markdown("---")
+    st.markdown("### Lịch sử kiểm chứng")
 
 
 def _format_date(d: date) -> str:
@@ -93,7 +96,7 @@ if run_btn:
     if report_json and report_json.get("judged_verdict"):
         with st.expander("Giải thích chi tiết"):
             st.markdown(report_json["judged_verdict"])
-    st.markdown(f"📁 Báo cáo: `{report_dir}`")
+    st.markdown(f"📁 Báo cáo: {report_dir}")
 
     st.divider()
 
@@ -102,7 +105,7 @@ if run_btn:
     with st.expander("Xem bằng chứng", expanded=False):
         if report_json and report_json.get("actions"):
             for action_id, info in report_json["actions"].items():
-                st.markdown(f"**{action_id}**")
+                st.markdown(f"*{action_id}*")
                 results = info.get("results") or {}
                 for url, item in results.items():
                     summary = item.get("summary")
@@ -110,4 +113,3 @@ if run_btn:
                     st.write(summary)
         else:
             st.info("Chưa có bằng chứng.")
-

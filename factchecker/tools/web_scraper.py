@@ -1,3 +1,4 @@
+import os
 import re
 from typing import Optional
 import concurrent.futures
@@ -23,6 +24,9 @@ def postprocess_scraped(text: str) -> str:
     return text
 
 
+SCRAPE_TIMEOUT = float(os.getenv("FACTCHECKER_SCRAPE_TIMEOUT", "4"))
+
+
 def scrape_url_content(url: str) -> Optional[MultimodalSequence]:
     """Fallback scraping script with a 15-second timeout."""
     headers = {
@@ -30,7 +34,7 @@ def scrape_url_content(url: str) -> Optional[MultimodalSequence]:
     }
     def _scrape():
         try:
-            page = requests.get(url, headers=headers, timeout=5)
+            page = requests.get(url, headers=headers, timeout=SCRAPE_TIMEOUT)
             # Handle any request errors
             if page.status_code == 403:
                 return None

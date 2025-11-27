@@ -1,6 +1,6 @@
 """Minimal runner for the factchecker with simple wall-clock timing."""
 import os
-from factchecker import factcheck
+from factchecker.factchecker import factcheck
 from time import perf_counter
 from datetime import datetime
 
