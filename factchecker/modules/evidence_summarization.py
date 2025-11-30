@@ -1,4 +1,4 @@
-from .llm import prompt_groq
+from .llm import prompt_ollama
 
 summarize_prompt = """
 Hướng dẫn
@@ -36,5 +36,5 @@ def summarize(claim, search_result, url, record, think=True):
         record=record,
         url=url
     )
-    return prompt_groq(prompt, think=think)
+    return prompt_ollama(prompt, think=think)
     

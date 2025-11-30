@@ -34,13 +34,13 @@ def _get_bi_model():
 def _get_cross_model():
     """Get or create cross-encoder model (singleton pattern, thread-safe)"""
     # Double-check locking pattern for thread safety
-    if _MODEL_CACHE['cross_model'] is None:
-        with _MODEL_LOCKS['cross_model']:
+    #if _MODEL_CACHE['cross_model'] is None:
+        #with _MODEL_LOCKS['cross_model']:
             # Check again after acquiring lock (another thread might have loaded it)
-            if _MODEL_CACHE['cross_model'] is None:
-                print("Loading CrossEncoder model (first time, may take a moment)...")
-                _MODEL_CACHE['cross_model'] = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
-                print("✓ CrossEncoder model loaded")
+            #if _MODEL_CACHE['cross_model'] is None:
+            #    print("Loading CrossEncoder model (first time, may take a moment)...")
+            #    _MODEL_CACHE['cross_model'] = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+            #    print("✓ CrossEncoder model loaded")
     return _MODEL_CACHE['cross_model']
 
 def clear_model_cache():

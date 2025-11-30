@@ -3,7 +3,7 @@ import os
 import json
 import concurrent.futures
 from .modules import planning, evidence_synthesis, evaluation, retriver_rav, llm
-from .modules.token_tracker import get_global_tracker, reset_global_tracker
+# from .modules.token_tracker import get_global_tracker, reset_global_tracker
 from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
@@ -46,8 +46,8 @@ class FactChecker:
             identifier = datetime.now().strftime("%m%d%Y%H%M%S")
         self.identifier = identifier
         if model_name:
-            llm.set_default_groq_model(model_name)
-        self.model_name = model_name or llm.get_default_groq_model()
+            llm.set_default_ollama_model(model_name)
+        self.model_name = model_name or llm.get_default_ollama_model()
         report_writer.init_report(claim, identifier)
         self.report_path = report_writer.REPORT_PATH
         print(f"Initialized report at: {self.report_path}")
@@ -74,8 +74,8 @@ class FactChecker:
         self._report_cache_dirty = True  # Flag to indicate cache needs refresh
         self._max_cache_size = 50 * 1024  # 50KB limit
         
-        # Reset token tracker for this fact-check session
-        reset_global_tracker()
+        # # Reset token tracker cho từng phiên fact-check (tạm thời vô hiệu)
+        # reset_global_tracker()
 
         # Save initial JSON report
         self.save_report_json()
@@ -412,27 +412,25 @@ class FactChecker:
         self.report["judged_verdict"] = verdict
         self.report["verdict"] = pred_verdict
         
-        # Get and save token usage summary
-        tracker = get_global_tracker()
-        token_summary = tracker.get_summary()
-        self.report["token_usage"] = token_summary
-        
-        # Print token usage summary
-        print("\n" + "="*60)
-        print("TOKEN USAGE SUMMARY")
-        print("="*60)
-        print(f"Total Requests: {token_summary['request_count']}")
-        print(f"Total Tokens: {token_summary['total_tokens']:,}")
-        print(f"  - Prompt Tokens: {token_summary['total_prompt_tokens']:,}")
-        print(f"  - Completion Tokens: {token_summary['total_completion_tokens']:,}")
-        print(f"Total Cost: ${token_summary['total_cost_usd']:.6f} USD")
-        if token_summary['usage_by_model']:
-            print("\nUsage by Model:")
-            for model, usage in token_summary['usage_by_model'].items():
-                print(f"  {model}:")
-                print(f"    Tokens: {usage['total_tokens']:,} (prompt: {usage['prompt_tokens']:,}, completion: {usage['completion_tokens']:,})")
-                print(f"    Cost: ${usage['cost_usd']:.6f} USD")
-        print("="*60 + "\n")
+        # # Tracking token usage đang bị vô hiệu vì chạy nội bộ Ollama
+        # tracker = get_global_tracker()
+        # token_summary = tracker.get_summary()
+        # self.report["token_usage"] = token_summary
+        # print("\n" + "="*60)
+        # print("TOKEN USAGE SUMMARY")
+        # print("="*60)
+        # print(f"Total Requests: {token_summary['request_count']}")
+        # print(f"Total Tokens: {token_summary['total_tokens']:,}")
+        # print(f"  - Prompt Tokens: {token_summary['total_prompt_tokens']:,}")
+        # print(f"  - Completion Tokens: {token_summary['total_completion_tokens']:,}")
+        # print(f"Total Cost: ${token_summary['total_cost_usd']:.6f} USD")
+        # if token_summary['usage_by_model']:
+        #     print("\nUsage by Model:")
+        #     for model, usage in token_summary['usage_by_model'].items():
+        #         print(f"  {model}:")
+        #         print(f"    Tokens: {usage['total_tokens']:,} (prompt: {usage['prompt_tokens']:,}, completion: {usage['completion_tokens']:,})")
+        #         print(f"    Cost: ${usage['cost_usd']:.6f} USD")
+        # print("="*60 + "\n")
         
         self.save_report_json()
         
