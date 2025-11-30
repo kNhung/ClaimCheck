@@ -4,6 +4,7 @@ import sys
 import json
 import pandas as pd
 import os
+import random
 from datetime import datetime, timezone, timedelta
     
 def csv_to_json(csv_path):
@@ -15,17 +16,61 @@ def csv_to_json(csv_path):
 if __name__ == "__main__":
     # Kiểm tra tham số
     if len(sys.argv) < 3:
-        print("Usage: python fact-check.py <path_to_file> <num_records> [model_name]")
+        print("Usage: python fact-check.py <path_to_file> <num_records> [model_name] [--shuffle] [--seed <seed_value>]")
         print("Supported formats: .json, .csv")
+        print("Options:")
+        print("  --shuffle: Shuffle dataset before selecting records")
+        print("  --seed <value>: Random seed for shuffling (use with --shuffle, default: random)")
+        print("\nExamples:")
+        print("  python fact-check.py dataset.csv 10 qwen2.5:0.5b")
+        print("  python fact-check.py dataset.csv 10 qwen2.5:0.5b --shuffle")
+        print("  python fact-check.py dataset.csv 10 qwen2.5:0.5b --shuffle --seed 42")
         sys.exit(1)
 
     input_path = sys.argv[1]
     num_records = int(sys.argv[2])
     model_name = None
-    if len(sys.argv) >= 4:
-        model_name = sys.argv[3].strip()
+    shuffle = False
+    random_seed = None
+    
+    # Parse additional arguments
+    i = 3
+    while i < len(sys.argv):
+        arg = sys.argv[i].strip()
+        if arg == "--shuffle":
+            shuffle = True
+        elif arg == "--seed":
+            # Next argument should be seed value
+            if i + 1 < len(sys.argv):
+                try:
+                    random_seed = int(sys.argv[i + 1])
+                    i += 1  # Skip next argument as it's the seed value
+                except ValueError:
+                    print(f"Warning: Invalid seed value '{sys.argv[i + 1]}', ignoring --seed")
+        elif arg.startswith("--"):
+            print(f"Warning: Unknown option '{arg}', ignoring")
+        else:
+            # Assume it's model_name if not a flag and model_name not set yet
+            if model_name is None:
+                model_name = arg
+        i += 1
+    
+    # Set default model name if not provided
     if not model_name:
         model_name = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
+    
+    # Set random seed if shuffle is enabled
+    if shuffle:
+        if random_seed is not None:
+            random.seed(random_seed)
+            try:
+                import numpy as np
+                np.random.seed(random_seed)
+            except ImportError:
+                pass
+            print(f"Shuffling dataset with seed: {random_seed}")
+        else:
+            print("Shuffling dataset (no seed specified - random)")
 
     # Determine file type and load data
     if input_path.endswith('.json'):
@@ -37,8 +82,22 @@ if __name__ == "__main__":
         print("Error: Unsupported file format. Please use .json or .csv")
         sys.exit(1)
 
-    # Giới hạn số bản ghi
-    data = data[:num_records]
+    # Shuffle dataset if requested
+    if shuffle:
+        print(f"Shuffling dataset (total records: {len(data)})...")
+        random.shuffle(data)
+        print("Dataset shuffled successfully.")
+    
+    # Giới hạn số bản ghi sau khi shuffle
+    # Note: num_records might be larger than dataset size, so take min
+    total_available = len(data)
+    data = data[:min(num_records, len(data))]
+    actual_num_records = len(data)
+    
+    if shuffle:
+        print(f"Selected {actual_num_records} records after shuffling (from {total_available} total).")
+    elif actual_num_records < num_records:
+        print(f"Warning: Only {actual_num_records} records available (requested {num_records}).")
 
     # Thời gian Việt Nam
     VN_TIMEZONE = timezone(timedelta(hours=7))
@@ -53,7 +112,7 @@ if __name__ == "__main__":
         claim_id = str(record.get("id", i + 1))  # Get id from input or use index+1
         expected_label = record.get("labels", None)  # Changed from "labels" to "label"
         
-        print(f"\n=== [{i+1}/{num_records}] Fact-checking: {claim}")
+        print(f"\n=== [{i+1}/{actual_num_records}] Fact-checking: {claim}")
         print(f"Expected label: {expected_label}")
         
         # Lưu kết quả vào reports/<ddmmyy-hhmm>/<id>/

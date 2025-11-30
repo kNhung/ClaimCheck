@@ -1,35 +1,15 @@
 from .llm import prompt_ollama
 
 develop_prompt = """HƯỚNG DẪN
-Bạn là 1 nhà kiểm chứng sự thật. Dựa vào BẢN GHI, hãy kiểm tra YÊU CẦU (Claim) đã có đủ bằng chứng để chứng minh chưa.
-
-
-CÁC BƯỚC CẦN THỰC HIỆN:
-1. Đọc YÊU CẦU từ BẢN GHI (Phần ... trong #Claim:...#)
-2. PHÂN TÍCH các bằng chứng trong BẢN GHI đã đủ để HỖ TRỢ hoặc PHẢN BÁC hoàn toàn YÊU CẦU chưa.
-3. Nếu chưa đủ, hãy đề xuất Hành động mới để thu thập bằng chứng bổ sung. 
-Định nghĩa "hành động" là dùng công cụ tìm kiếm web với từ khóa cụ thể để thu thập bằng chứng. Công cụ tìm kiếm web có định dạng: web_search("..."), image_search("...") với ... là từ khóa tìm kiếm. Ví dụ cho 1 hành động: 
-web_search("Việt Nam nằm ở đâu trên bản đồ thế giới?")
-
-
-LƯU Ý:
-- Tập trung vào phát triển suy luận mới.
-- Không lặp lại các suy luận đã có trong BẢN GHI.
-- Trình bày PHÂN TÍCH từ 1-3 đoạn.
-
-ĐỊNH DẠNG ĐẦU RA (theo thứ tự các bước trên):
-### Reasoning:
-Điền phân tích của bạn ở đây... (bước 1, bước 2). Trình bày PHÂN TÍCH trong 1-3 đoạn.
-Kết luận phân tích trên bằng đúng 1 cụm từ: "Đã ĐỦ BẰNG CHỨNG" hoặc "CHƯA ĐỦ BẰNG CHỨNG" cho YÊU CẦU.
-### Actions:
-Dựa vào phần Reasoning trên:
-- Nếu "ĐÃ ĐỦ BẰNG CHỨNG", in ra "NONE" và kết thúc.
-- Nếu "CHƯA ĐỦ BẰNG CHỨNG", điền hành động của bạn ở đây... (bước 3). Mỗi hành động trên 1 dòng, theo định dạng công cụ tìm kiếm web đã nêu ở trên.
+Bạn được cung cấp 1 bản ghi. Dựa vào bản ghi, hãy kiểm tra Claim đã có đủ bằng chứng để chứng minh chưa như sau:
+Kiểm tra các khía cạnh của Claim đã được nhắc đến trong các phần summary chưa.
+- Nếu chưa đủ bằng chứng để chứng minh Claim, in ra từ khóa tìm kiếm web cụ thể để thu thập thêm bằng chứng. In ra từ khóa tìm kiếm dưới dạng: TÌM KIẾM: <từ khóa tìm kiếm>. Lưu ý không in từ khóa tìm kiếm đã được nhắc đến trong web_search("..")
+- Nếu đã có đủ bằng chứng để chứng minh Claim, in ra duy nhất "NONE".
 
 BẢN GHI:
 {record}
 
-In ra KẾT QUẢ theo ĐỊNH DẠNG ĐẦU RA ở trên:
+In ra kết quả của bạn:
 """
 
 def develop(record, think=True):

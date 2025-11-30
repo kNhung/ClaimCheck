@@ -1,7 +1,6 @@
-import openai
 import os
 import ollama
-import base64
+import dotenv
 
 try:
     from dotenv import load_dotenv  # type: ignore
@@ -20,7 +19,6 @@ def set_default_ollama_model(model_name: str):
     global DEFAULT_OLLAMA_MODEL
     if model_name:
         DEFAULT_OLLAMA_MODEL = model_name
-
 
 def get_default_ollama_model():
     return DEFAULT_OLLAMA_MODEL

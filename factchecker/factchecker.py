@@ -13,18 +13,17 @@ import fcntl
 
 RULES_PROMPT = """
 Supported
-- Có bằng chứng rõ ràng, trực tiếp và đáng tin cậy ủng hộ yêu cầu.
-- Dùng khi đa số bằng chứng độc lập chỉ ra rằng yêu cầu là đúng, dù một vài chi tiết nhỏ chưa được xác nhận.
+- Dùng khi có bằng chứng rõ ràng, trực tiếp và đáng tin cậy ỦNG HỘ yêu cầu.
+- Nếu yêu cầu có nhiều khía cạnh, TẤT CẢ các khía cạnh phải được ỦNG HỘ để chọn phán quyết này.
 
 Refuted
-- Có bằng chứng đáng tin cậy bác bỏ hoặc mâu thuẫn trực tiếp với yêu cầu.
-- Dùng khi phần chính của yêu cầu bị chứng minh sai hoặc không đúng sự thật.
-- KHÔNG dùng nếu chỉ thiếu bằng chứng — chỉ dùng khi có bằng chứng phản đối rõ ràng.
+- Dùng khi có bằng chứng rõ ràng BÁC BỎ hoặc MÂU THUẪN trực tiếp với yêu cầu.
+- Nếu yêu cầu có nhiều khía cạnh, dù chỉ 1 khía cạnh bị BÁC BỎ trong khi các khía cạnh còn lại được ủng hộ cũng đủ để chọn phán quyết này.
 
 Not Enough Evidence
-- Dùng khi không có đủ bằng chứng để xác nhận hoặc bác bỏ yêu cầu.
-- Cũng dùng nếu yêu cầu quá mơ hồ hoặc không thể kiểm chứng bằng dữ liệu hiện có.
-- KHÔNG dùng nếu đã có bằng chứng rõ ràng ủng hộ hoặc phản đối.
+- Dùng khi KHÔNG ĐỦ bằng chứng để xác nhận hoặc bác bỏ yêu cầu.
+- Cũng dùng nếu yêu cầu quá MƠ HỒ hoặc không thể kiểm chứng bằng dữ liệu hiện có.
+- Nếu yêu cầu có nhiều khía cạnh, chỉ cần 1 khía cạnh không đủ bằng chứng để chọn phán quyết này.
 """
 
 LABEL_MAP = {
@@ -54,7 +53,7 @@ class TimerTracker:
 
 
 class FactChecker:
-    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, model_name=None):
+    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=1, model_name=None):
         self.claim = claim
         self.date = date
         self.multimodal = multimodal if not (multimodal and image_path is None) else False
@@ -77,7 +76,6 @@ class FactChecker:
             "model": self.model_name,
             "actions": {},
             "reasoning": [],
-            "judged_verdict": None,
             "verdict": None,
             "justification": None,
             "report_path": self.report_path,
@@ -169,9 +167,9 @@ class FactChecker:
                             print(f"Skipping summary for evidence: {result}")
                             return None
 
-                        print(f"Web search result: {result}, Summary: {summary}")
+                        print(f"Web search result: {result}, Summmary: {summary}")
                         report_writer.append_raw(f"web_search('{query}') results: {result}")
-                        report_writer.append_evidence(f"web_search('{query}') summary: {summary}")
+                        report_writer.append_evidence(f"web_search('{query}') Summary: {summary}")
 
                         with self._report_lock:
                             if result in self.report["actions"][identifier]["results"]:
@@ -188,23 +186,15 @@ class FactChecker:
     def run(self):
         try:
             with self._timers.track("factcheck_run"):
-                actions = "All" if self.multimodal else ["web_search"]  # , "image_search"]
                 with self._timers.track("planning"):
-                    actions = planning.plan(self.claim, record=self.get_trimmed_record(), actions=actions, think=False)
-                report_writer.append_iteration_actions(1, actions)
-                print(f"Proposed actions for claim '{self.claim}':\n{actions}")
+                    queries = planning.plan(self.claim, think=False)
+                
+                queries_lines = [x.strip() for x in queries.split('\n') if x.strip()]
+                action_lines = ["web_search(\"" + line + "\")" for line in queries_lines if line]
 
-                action_lines = [x.strip() for x in actions.split('\n')]
-                print(f"Extracted action lines: {action_lines}")
+                report_writer.append_iteration_actions(1, '\n'.join(action_lines))
+                print(f"Proposed actions for claim '{self.claim}':\n{action_lines}")
 
-                matches = re.findall(r'(\w+)_search\((.*?)\)', actions, re.IGNORECASE)
-                action_lines = []
-                for action, raw_query in matches:
-                    cleaned = raw_query.strip().strip('"').strip("'")
-                    if not cleaned:
-                        continue
-                    action_lines.append(f'{action}_search("{cleaned}")')
-                print(f"Filtered valid action lines: {action_lines}")
                 print(f"Total action lines: {len(action_lines)}")
                 print(f"Max actions allowed: {self.max_actions}")
 
@@ -243,9 +233,25 @@ class FactChecker:
                         break
 
                     reasoning_action_lines = [x.strip() for x in reasoning.split('\n')]
-                    reasoning_action_lines = [
-                        line for line in reasoning_action_lines if re.match(r'((\w+)_search\("([^"]+)"\)|NONE)', line, re.IGNORECASE)
-                    ]
+                    # Extract actions from format "TÌM KIẾM: <query>" (from dev-knhung)
+                    extracted_actions = []
+                    for line in reasoning_action_lines:
+                        if line.lower() == 'none':
+                            extracted_actions.append('NONE')
+                        elif 'TÌM KIẾM:' in line:
+                            # Find the position of "TÌM KIẾM:" and extract query after it
+                            idx = line.find('TÌM KIẾM:')
+                            if idx != -1:
+                                query = line[idx + len('TÌM KIẾM:'):].strip()
+                                extracted_actions.append("web_search(\"" + query + "\")")
+                    
+                    # Also check for standard action format (from HEAD)
+                    if not extracted_actions:
+                        reasoning_action_lines = [
+                            line for line in reasoning_action_lines if re.match(r'((\w+)_search\("([^"]+)"\)|NONE)', line, re.IGNORECASE)
+                        ]
+                    else:
+                        reasoning_action_lines = extracted_actions
 
                     print(f"Extracted reasoning action lines: {reasoning_action_lines}")
 
@@ -350,8 +356,10 @@ class FactChecker:
                             print("No decision options found in verdict, defaulting to 'INVALID VERDICT'.")
 
                 report_writer.append_verdict(verdict)
+                report_writer.append_justification(verdict)
                 with self._report_lock:
                     self.report["judged_verdict"] = verdict
+                    self.report["justification"] = verdict
                     self.report["verdict"] = pred_verdict
                 self.save_report_json()
 
@@ -361,7 +369,7 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None, model_name=None):
+def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=1, expected_label=None, model_name=None):
     checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
     verdict, report_path = checker.run()
     
