@@ -10,6 +10,9 @@ from .modules import planning, evidence_synthesis, evaluation, retriver_rav, llm
 from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
+import dotenv
+dotenv.load_dotenv()
+MAX_ACTIONS = int(os.getenv("FACTCHECKER_MAX_ACTIONS", "2"))
 
 RULES_PROMPT = """
 Supported
@@ -372,7 +375,7 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=1, expected_label=None, model_name=None):
+def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=MAX_ACTIONS, expected_label=None, model_name=None):
     checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
     verdict, report_path = checker.run()
     return verdict, report_path
