@@ -54,7 +54,7 @@ class TimerTracker:
 
 
 class FactChecker:
-    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=1, model_name=None):
+    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=3, model_name=None):
         self.claim = claim
         self.date = date
         self.multimodal = multimodal if not (multimodal and image_path is None) else False
