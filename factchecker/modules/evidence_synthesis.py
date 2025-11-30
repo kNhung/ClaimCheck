@@ -1,35 +1,15 @@
 from .llm import prompt_ollama
 
-develop_prompt = """
-Hướng dẫn
-Bạn vừa thu thập được Bằng chứng mới. Hãy phân tích tính đúng/sai của Phát biểu dựa trên bằng chứng và tuân thủ các quy tắc sau:
-- Tập trung phát triển insight mới. Không lặp lại dài dòng nội dung từ Record. Không nhắc lại nguyên văn Claim.
-- Viết suy luận theo từng bước; khi cần có thể giải thích chi tiết.
-- Tùy độ phức tạp, viết khoảng 1–3 đoạn; càng ngắn gọn càng tốt.
-- Nếu thông tin chưa đủ để kết luận, nêu rõ dữ liệu nào còn thiếu.
-- Nếu trích nguồn web, dẫn link bằng Markdown (dùng URL gốc làm hyperlink).
-- Chỉ dùng thông tin có trong các bằng chứng đã ghi nhận; có thể dùng kiến thức thường thức ở mức hợp lý.
+develop_prompt = """HƯỚNG DẪN
+Bạn được cung cấp 1 bản ghi. Dựa vào bản ghi, hãy kiểm tra Claim đã có đủ bằng chứng để chứng minh chưa như sau:
+Kiểm tra các khía cạnh của Claim đã được nhắc đến trong các phần summary chưa.
+- Nếu chưa đủ bằng chứng để chứng minh Claim, in ra từ khóa tìm kiếm web cụ thể để thu thập thêm bằng chứng. In ra từ khóa tìm kiếm dưới dạng: TÌM KIẾM: <từ khóa tìm kiếm>. Lưu ý không in từ khóa tìm kiếm đã được nhắc đến trong web_search("..")
+- Nếu đã có đủ bằng chứng để chứng minh Claim, in ra duy nhất "NONE".
 
-Nếu thực sự cần thu thập thêm bằng chứng, bạn có thể đề xuất các hành động. Nếu không cần, chỉ đưa ra phần suy luận, không thêm gì khác.
-Tuân thủ:
-- Các hành động hợp lệ nằm trong phần Valid Actions (kèm mô tả ngắn). Không có hành động nào khác ngoài danh sách này.
-- Mỗi hành động phải theo đúng định dạng chỉ định ở Valid Actions.
-- Đề xuất ít nhưng đủ; không lặp lại hay trùng với các hành động đã có.
-- Đặt toàn bộ các hành động trong một khối mã (Markdown code block) duy nhất ở cuối câu trả lời.
-
-Lưu ý kỹ thuật: Giữ nguyên cú pháp chính xác khi in ra hành động, ví dụ web_search("...") và token NONE (không dịch).
-
-Valid Actions:
-web search: Tìm kiếm web mở cho các trang liên quan.
-
-Ví dụ:
-web_search("New Zealand Food Bill 2020")
-
-
-Record:
+BẢN GHI:
 {record}
 
-In ra KẾT QUẢ theo ĐỊNH DẠNG ĐẦU RA ở trên:
+In ra kết quả của bạn:
 """
 
 def develop(record, think=True):

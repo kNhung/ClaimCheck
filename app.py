@@ -127,7 +127,7 @@ if run_btn:
                 results = info.get("results") or {}
                 for url, item in results.items():
                     summary = item.get("summary")
-                    st.markdown(f"- [Nguồn]({url})")
+                    st.markdown(url)
                     st.write(summary)
         else:
             st.info("Chưa có bằng chứng.")

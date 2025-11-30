@@ -1,165 +1,200 @@
+# factchecker/modules/planning.py
+
 import re
-from .llm import prompt_ollama
+from underthesea import word_tokenize, pos_tag, ner
+from typing import List, Tuple
 
-plan_prompt = """HƯỚNG DẪN
-Mọi phát ngôn đều phải có thể kiểm chứng và dựa trên dữ liệu đã được khai thác. Nếu không đủ thông tin, phải kết luận `Not Enough Information`. Tuyệt đối không được giả định.
-GIAO THỨC KHÔNG ẢO GIÁC: trước khi trả lời, cần kiểm tra lại tính xác thực của thông tin.
+# Stopwords tiếng Việt (mở rộng)
+VIETNAMESE_STOPWORDS = {
+    'là', 'của', 'và', 'có', 'được', 'trong', 'với', 'theo', 
+    'này', 'đó', 'khi', 'sẽ', 'đã', 'mà', 'về', 'cho', 'từ',
+    'vào', 'trên', 'dưới', 'sau', 'trước', 'trong', 'ngoài',
+    'một', 'hai', 'ba', 'các', 'những', 'mỗi', 'mọi',
+    'thì', 'nếu', 'nên', 'để', 'như', 'vì', 'do'
+}
 
-Nhiệm vụ: Tìm bằng chứng để kiểm chứng phát biểu (Claim).
-Claim: {claim}
-
-Quy tắc:
-- THỰC HIỆN TỐI THIỂU 2 HÀNH ĐỘNG.
-- Bạn CHỈ ĐƯỢC phép in ra danh sách các hành động theo đúng cú pháp bên dưới.
-- Mỗi hành động phải được in trong cùng một khối mã (```) duy nhất.
-- Không in ra danh sách các bước.
-- Không được giải thích, không được in văn bản tự nhiên, không thêm mô tả.
-
-
-Hành động hợp lệ:
-web_search("{claim}")
-{valid_actions}
-
-ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (thay ... bằng từ, cụm từ, hoặc thực thể từ Yêu cầu):
-{examples}
-
-BẢN GHI:
-{record}
-
-Your Actions:
-"""
-decompose_prompt = """Hướng dẫn
-Phân tách phát biểu dưới đây thành 1-3 **tiểu phát biểu** có thể được kiểm chứng độc lập, giữ ngữ nghĩa gốc, tránh suy diễn hoặc mở rộng nội dung.
-
-
-Claim: {claim}
-Your Sub-Claims:
-"""
-
-def heuristic_plan(claim, actions=None):
+def extract_entities_and_keywords(claim: str) -> Tuple[List[str], List[str], List[str]]:
     """
-    Fast heuristic-based planner that extracts keywords and generates web_search queries.
-    Returns a string with web_search actions, or None if heuristics fail.
+    Trích xuất entities, keywords và phrases quan trọng từ claim.
+    
+    Returns:
+        Tuple[List[str], List[str], List[str]]: (entities, keywords, phrases)
     """
-    if not actions or "web_search" not in actions:
-        return None
-    
-    # Extract key entities and keywords from the claim
-    claim_lower = claim.lower()
-    
-    # Common Vietnamese names/entities (add more as needed)
+    # 1. NER để tìm thực thể
+    entities_result = ner(claim)
     entities = []
-    name_patterns = [
-        r'\b(putin|trump|biden|zelensky|xi jinping|kim jong|modi)\b',
-        r'\b(nga|russia|ukraine|trung quốc|china|mỹ|usa|anh|britain)\b',
-        r'\b(vietnam|việt nam|hà nội|hồ chí minh|sài gòn)\b'
+    for entity in entities_result:
+        if len(entity) == 4:  # Format: (word, pos, chunk, ner_label)
+            word, _, _, label = entity
+            if label in ['PER', 'ORG', 'LOC', 'MISC']:
+                entities.append(word)
+    
+    # 2. POS tagging để tìm từ khóa quan trọng
+    tokens = pos_tag(claim)
+    keywords = []
+    for word, pos in tokens:
+        word_lower = word.lower()
+        # Giữ danh từ (N*), động từ (V*), tính từ (A*)
+        if (pos.startswith(('N', 'V', 'A')) and 
+            word_lower not in VIETNAMESE_STOPWORDS and
+            len(word) > 1):
+            keywords.append(word)
+    
+    # 3. Trích xuất cụm từ quan trọng (bigrams, trigrams)
+    words = word_tokenize(claim)
+    phrases = []
+    
+    # Bigrams và trigrams không chứa stopwords
+    for i in range(len(words) - 1):
+        if words[i].lower() not in VIETNAMESE_STOPWORDS:
+            # Bigram
+            if i + 1 < len(words):
+                if words[i+1].lower() not in VIETNAMESE_STOPWORDS:
+                    phrases.append(f"{words[i]} {words[i+1]}")
+            # Trigram
+            if i + 2 < len(words):
+                if (words[i+1].lower() not in VIETNAMESE_STOPWORDS and
+                    words[i+2].lower() not in VIETNAMESE_STOPWORDS):
+                    phrases.append(f"{words[i]} {words[i+1]} {words[i+2]}")
+    
+    return entities, keywords, phrases
+
+
+def generate_query_from_entities(entities: List[str], keywords: List[str]) -> str:
+    """
+    Tạo query từ entities và keywords.
+    """
+    query_parts = []
+    
+    # Ưu tiên entities
+    if entities:
+        query_parts.extend(entities[:2])  # Tối đa 2 entities
+    
+    # Thêm keywords quan trọng
+    remaining_keywords = [k for k in keywords if k not in entities][:3]
+    query_parts.extend(remaining_keywords)
+    
+    return ' '.join(query_parts[:5])  # Tối đa 5 từ
+
+
+def simplify_claim(claim: str, max_words: int = 12) -> str:
+    """
+    Rút gọn claim bằng cách loại bỏ stopwords và từ không quan trọng.
+    """
+    words = word_tokenize(claim)
+    filtered_words = [
+        w for w in words 
+        if w.lower() not in VIETNAMESE_STOPWORDS and len(w) > 1
     ]
     
-    for pattern in name_patterns:
-        matches = re.findall(pattern, claim_lower, re.IGNORECASE)
-        entities.extend(matches)
+    # Giữ các từ quan trọng nhất
+    return ' '.join(filtered_words[:max_words])
+
+
+def generate_queries_rule_based(claim: str) -> List[str]:
+    """
+    Sinh nhiều queries từ claim bằng rule-based (KHÔNG dùng LLM).
     
-    # Extract important keywords (nouns, verbs related to actions)
-    # Remove common stop words
-    stop_words = {'nói', 'sẽ', 'nếu', 'bị', 'được', 'có', 'là', 'và', 'của', 'cho', 'với', 'the', 'a', 'an', 'is', 'are', 'was', 'were', 'will', 'would', 'said', 'says'}
-    words = re.findall(r'\b\w+\b', claim_lower)
-    keywords = [w for w in words if w not in stop_words and len(w) > 2]
-    
-    # Build search queries
+    Returns:
+        List[str]: Danh sách các queries
+    """
+    entities, keywords, phrases = extract_entities_and_keywords(claim)
     queries = []
+    seen = set()
     
-    # Strategy 1: Use the full claim as-is (most direct)
-    if len(claim) < 100:  # Only if claim is reasonably short
+    # Query 1: Entity + Keywords (ưu tiên nhất)
+    if entities and keywords:
+        query1 = generate_query_from_entities(entities, keywords)
+        if query1 and len(query1.split()) >= 2:
+            queries.append(query1)
+            seen.add(query1.lower())
+    
+    # Query 2: Chỉ entities (nếu có)
+    if entities:
+        entity_query = ' '.join(entities[:2])
+        if entity_query and entity_query.lower() not in seen:
+            queries.append(entity_query)
+            seen.add(entity_query.lower())
+    
+    # Query 3: Claim đã rút gọn (nếu claim dài)
+    if len(claim.split()) > 10:
+        simplified = simplify_claim(claim, max_words=10)
+        if simplified and simplified.lower() not in seen and len(simplified.split()) >= 3:
+            queries.append(simplified)
+            seen.add(simplified.lower())
+    
+    # Query 4: Key phrases (bigrams/trigrams)
+    if phrases:
+        for phrase in phrases[:2]:  # Lấy 2 phrases tốt nhất
+            if phrase.lower() not in seen and len(phrase.split()) >= 2:
+                queries.append(phrase)
+                seen.add(phrase.lower())
+                if len(queries) >= 4:  # Tối đa 4 queries
+                    break
+    
+    # Query 5: Fallback - claim gốc nếu ngắn
+    if not queries and len(claim.split()) <= 12:
         queries.append(claim)
     
-    # Strategy 2: Combine key entities + important keywords
-    if entities:
-        # Take first 2-3 most important keywords
-        important_keywords = [k for k in keywords[:3] if k not in [e.lower() for e in entities]]
-        query_parts = entities[:2] + important_keywords[:2]
-        if query_parts:
-            queries.append(' '.join(query_parts))
+    # Đảm bảo tối thiểu 1 query
+    if not queries:
+        # Fallback: lấy 8 từ đầu không có stopwords
+        words = [w for w in word_tokenize(claim) 
+                if w.lower() not in VIETNAMESE_STOPWORDS][:8]
+        if words:
+            queries.append(' '.join(words))
+        else:
+            queries.append(claim[:50])  # Last resort
     
-    # Strategy 3: Entity-focused query
-    if entities:
-        queries.append(' '.join(entities[:2]))
-    
-    # Remove duplicates and limit to 2 queries
-    seen = set()
-    unique_queries = []
-    for q in queries:
-        q_normalized = q.lower().strip()
-        if q_normalized and q_normalized not in seen and len(q_normalized) > 5:
-            seen.add(q_normalized)
-            unique_queries.append(q)
-            if len(unique_queries) >= 2:
-                break
-    
-    if not unique_queries:
-        return None
-    
-    # Format as web_search actions
-    actions_list = [f'web_search("{q}")' for q in unique_queries]
-    return '\n'.join(actions_list)
+    return queries[:3]  # Trả về tối đa 3 queries tốt nhất
 
 
-def plan(claim, record="", examples="", actions=None, think=True, use_heuristic_first=True):
+def plan(claim: str, think: bool = True, use_hybrid: bool = False) -> str:
     """
-    Hybrid planner: tries fast heuristics first, falls back to LLM if needed.
+    Tạo queries từ claim.
     
     Args:
-        use_heuristic_first: If True, try heuristic planner first before LLM
+        claim: Câu claim cần fact-check
+        think: (Deprecated) Giữ để tương thích với code cũ
+        use_hybrid: Nếu True, sử dụng hybrid approach (LLM fallback)
+    
+    Returns:
+        str: Các queries, mỗi query trên một dòng
     """
-    # Try heuristic planner first (fast, no LLM call)
-    if use_heuristic_first:
-        heuristic_result = heuristic_plan(claim, actions)
-        if heuristic_result:
-            print("[PLANNER] Using heuristic planner (fast)")
-            return heuristic_result
-        print("[PLANNER] Heuristic planner returned empty, falling back to LLM")
+    # Phương án 1: Rule-based (nhanh, không dùng LLM)
+    queries = generate_queries_rule_based(claim)
     
-    # Fallback to LLM planner
-    action_definitions = {
-        "web_search": {
-            "desc": "Thực hiện tìm kiếm web mở cho các trang liên quan.", 
-            #"example": 'web_search("{claim}")',
-            "params": {
-                "query": "Từ khóa tìm kiếm"
-            }
-        }
-    }
-    
-    decompose_text = decompose_prompt.format(claim=claim)
-    subclaims_response = prompt_ollama(decompose_text, think=think)
-    subclaims = [] 
-    
-    for line in subclaims_response.splitlines():
-        line = line.strip()
-        if line:
-            subclaims.append(line)
-    
-    if not subclaims:
-        subclaims = [claim]
-    
-    if not actions:
-        actions = ["web_search"]
-        
-    valid_actions = "\n".join([f"{a}: {action_definitions[a]['desc']}" for a in actions])
-    #examples = "\n".join([f"{action_definitions[a]['example']}" for a in actions])
-    prompt = plan_prompt.format(valid_actions=valid_actions, examples=examples, record=record, claim=claim)
-    print("[PLANNER] Using LLM planner (slower)")
-    response = prompt_ollama(prompt, think=think)
-    # return response
-
-    all_actions = []
-
-    for sub in subclaims:
-        prompt = plan_prompt.format(
-            valid_actions=valid_actions, 
-            examples=examples,
-            record=record,
-            claim=sub
+    # Phương án 2: Hybrid (tùy chọn - chỉ dùng LLM khi cần)
+    if use_hybrid:
+        # Kiểm tra điều kiện cần LLM
+        needs_llm = (
+            len(claim.split()) > 100 or  # Claim quá dài
+            len(queries) == 0 or  # Không tạo được query
+            any(len(q.split()) < 3 for q in queries)  # Query quá ngắn
         )
-        response = prompt_ollama(prompt, think=think)
-        all_actions.extend(response.splitlines())
-    return "\n".join(all_actions)
+        
+        if needs_llm:
+            # Fallback to LLM (giữ code cũ)
+            from .llm import prompt_ollama
+            plan_prompt = """HƯỚNG DẪN
+Kiến thức hiện tại vẫn chưa đủ để đánh giá tính xác thực của YÊU CẦU.
+Hãy in ra CÂU TÌM KIẾM để thu thập bằng chứng mới, theo đúng quy tắc sau:
+
+### QUY TẮC:
+- CÂU TÌM KIẾM là một cụm từ hoặc câu ngắn gọn dùng để tìm kiếm thông tin trên web.
+- CÂU TÌM KIẾM liên quan trực tiếp đến YÊU CẦU và chứa ít nhất một từ khóa hoặc thực thể trong YÊU CẦU.
+
+### YÊU CẦU: 
+{claim}
+
+### ĐỊNH DẠNG ĐẦU RA BẮT BUỘC:
+Chỉ in CÂU TÌM KIẾM, KHÔNG in thêm mô tả hay giải thích.
+
+In ra câu tìm kiếm của bạn:
+"""
+            prompt = plan_prompt.format(claim=claim)
+            llm_response = prompt_ollama(prompt, think=False)
+            return llm_response
+    
+    # Trả về queries rule-based
+    return '\n'.join(queries)

@@ -23,7 +23,7 @@ def init_report(claim, identifier):
     os.makedirs(images_dir, exist_ok=True)
     report_md_path = os.path.join(base_dir, 'report.md')
     with open(report_md_path, 'w') as f:
-        f.write(f"# Claim: {claim}") 
+        f.write(f"# Claim: {claim}\n\n") 
     evidence_md_path = os.path.join(base_dir, 'evidence.md')
     with open(evidence_md_path, 'w') as f:
         f.write("### Raw Evidence\n\n") 

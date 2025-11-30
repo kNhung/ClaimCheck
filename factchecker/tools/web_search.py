@@ -69,4 +69,7 @@ def web_search(query, date, top_k=3, **kwargs):
             "link": item.get("link"),
             "snippet": item.get("snippet")
         })
-    return results
+    urls = [r["link"] for r in results]
+    snippets = [r["snippet"] for r in results]
+
+    return urls, snippets

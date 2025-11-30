@@ -1,6 +1,6 @@
 import os
 import ollama
-import base64
+import dotenv
 
 try:
     from dotenv import load_dotenv  # type: ignore
