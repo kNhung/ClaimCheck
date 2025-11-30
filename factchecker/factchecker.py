@@ -66,6 +66,7 @@ class FactChecker:
         if model_name:
             llm.set_default_ollama_model(model_name)
         self.model_name = llm.get_default_ollama_model()
+        print(self.model_name)
         report_writer.init_report(claim, identifier)
         self.report_path = report_writer.REPORT_PATH
         print(f"Initialized report at: {self.report_path}")

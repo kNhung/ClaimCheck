@@ -77,7 +77,7 @@ def append_justification(justification):
     except Exception as e:
         print(f"Error appending justification: {e}")
 
-def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None):
+def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None, clean_claim=None):
     """Writes detailed fact-checking results to a CSV file with fixed columns.
     Ensures a sample is only written once (skip if same report_path or id already present)."""
     try:
@@ -132,6 +132,7 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
             fieldnames = [
                 'id',
                 'claim',
+                'clean_claim',
                 'evidence',
                 'reasoning',
                 'verdict',
@@ -152,6 +153,7 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
             writer.writerow({
                 'id': claim_id if claim_id is not None else "",
                 'claim': claim,
+                'clean_claim': clean_claim,
                 'evidence': evidence_clean,
                 'reasoning': reasoning_clean,
                 'verdict': verdict,

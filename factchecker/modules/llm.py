@@ -3,6 +3,9 @@ import os
 import ollama
 import base64
 
+from dotenv import load_dotenv
+load_dotenv()
+
 DEFAULT_OLLAMA_MODEL = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
 REASONING_MODEL = os.getenv("FACTCHECKER_REASONING_MODEL", None)  # Use faster model for reasoning if set
 JUDGE_MODEL = os.getenv("FACTCHECKER_JUDGE_MODEL", None)  # Use faster model for judging if set
