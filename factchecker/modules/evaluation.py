@@ -167,44 +167,69 @@ def detect_contradiction(claim: str, evidence: str) -> float:
     Returns contradiction score [0, 1]
     
     Based on keyword patterns and semantic analysis.
+    Cải thiện: Phát hiện khi claim nói "không thể X" nhưng evidence nói "được X" hoặc "có thể X".
     """
     evidence_lower = evidence.lower()
     claim_lower = claim.lower()
     
-    # Pattern 1: Explicit negation keywords in Vietnamese
+    # Pattern 1: Explicit negation keywords in Vietnamese (trong evidence)
     negation_patterns = [
         r'\b(không|chưa|không có|không phải|sai|bác bỏ|phủ nhận)\b',
         r'\b(mâu thuẫn|trái ngược|khác với|không đúng|không chính xác)\b',
         r'\b(tuy nhiên|nhưng|mặt khác|ngược lại)\b'
     ]
     
-    # Count negation patterns
+    # Count negation patterns trong evidence
     negation_count = 0
     for pattern in negation_patterns:
         negation_count += len(re.findall(pattern, evidence_lower))
     
-    # Pattern 2: Check for entity mismatch (same entities but different facts)
-    # Extract entities from both claim and evidence
-    # If same entities mentioned but different values/actions, might be contradiction
+    # Pattern 2: Claim nói "không thể X" nhưng evidence nói "được X" hoặc "có thể X"
+    # Tìm các pattern phủ định trong claim
+    claim_negation_patterns = [
+        r'\b(không thể|không được|không cho phép|không có thể|cấm|không được phép)\b',
+        r'\b(không có|không tồn tại|không xảy ra)\b'
+    ]
     
-    # Simple heuristic: if evidence contains negation AND mentions claim keywords
+    # Tìm các pattern khẳng định trong evidence (đối lập với claim)
+    evidence_positive_patterns = [
+        r'\b(được|được phép|được cho phép|có thể|cho phép|được sử dụng|được kết hợp)\b',
+        r'\b(có|có thể|có khả năng|tồn tại|xảy ra)\b'
+    ]
+    
+    # Kiểm tra contradiction: claim nói "không thể X" nhưng evidence nói "được X"
+    claim_has_negation = any(re.search(pattern, claim_lower) for pattern in claim_negation_patterns)
+    evidence_has_positive = any(re.search(pattern, evidence_lower) for pattern in evidence_positive_patterns)
+    
+    # Pattern 3: Check for entity mismatch (same entities but different facts)
     claim_keywords = set(re.findall(r'\b\w{4,}\b', claim_lower))  # Words with 4+ chars
     evidence_keywords = set(re.findall(r'\b\w{4,}\b', evidence_lower))
     
     common_keywords = claim_keywords.intersection(evidence_keywords)
     has_common_entities = len(common_keywords) > 2  # At least 3 common keywords
     
-    # Contradiction score
-    if negation_count > 0 and has_common_entities:
-        # Strong contradiction: negation + same entities
-        contradiction_score = min(1.0, 0.3 + negation_count * 0.2)
-    elif negation_count > 0:
-        # Weak contradiction: just negation
-        contradiction_score = min(0.6, negation_count * 0.15)
-    else:
-        contradiction_score = 0.0
+    # Tính contradiction score
+    contradiction_score = 0.0
     
-    return contradiction_score
+    # Case 1: Evidence có từ phủ định + cùng entities → Strong contradiction
+    if negation_count > 0 and has_common_entities:
+        contradiction_score = max(contradiction_score, min(1.0, 0.4 + negation_count * 0.2))
+    
+    # Case 2: Claim nói "không thể X" nhưng evidence nói "được X" → Strong contradiction
+    # Đây là contradiction rõ ràng nhất: claim phủ định nhưng evidence khẳng định
+    if claim_has_negation and evidence_has_positive and has_common_entities:
+        contradiction_score = max(contradiction_score, 0.75)  # Very high contradiction score
+    
+    # Case 3: Claim nói "không thể X" nhưng evidence nói "được X" (không cần common entities)
+    # Vẫn là contradiction nếu có cùng chủ đề
+    if claim_has_negation and evidence_has_positive and len(common_keywords) > 1:
+        contradiction_score = max(contradiction_score, 0.65)
+    
+    # Case 4: Evidence có từ phủ định nhưng không có common entities → Weak contradiction
+    if negation_count > 0 and not has_common_entities:
+        contradiction_score = max(contradiction_score, min(0.5, negation_count * 0.15))
+    
+    return min(1.0, contradiction_score)
 
 
 def evidence_reasoning_network(G: nx.Graph, claim_emb: np.ndarray, 
@@ -486,18 +511,38 @@ def classify_verdict(aggregated_scores: Dict[str, float], min_evidence_threshold
         justification = f"Không có đủ bằng chứng để xác nhận hoặc bác bỏ. Chỉ tìm thấy {num_evidence} bằng chứng."
         return "Not Enough Evidence", justification
     
-    # Decision logic with clear thresholds
+    # Decision logic with adaptive thresholds (cải thiện)
     score_diff = support_score - refute_score
     
-    # Supported: clear support with significant margin
-    if support_score > 0.55 and score_diff > 0.15:
-        justification = f"Bằng chứng cho thấy yêu cầu được hỗ trợ (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
-        return "Supported", justification
+    # Adaptive thresholds dựa trên alignment
+    if mean_alignment > 0.9:  # Evidence rất liên quan
+        support_threshold = 0.50
+        refute_threshold = 0.45  # Giảm threshold cho refute để dễ phát hiện hơn
+        diff_threshold = 0.12
+    elif mean_alignment > 0.7:  # Evidence khá liên quan
+        support_threshold = 0.55
+        refute_threshold = 0.50  # Giảm từ 0.55 xuống 0.50
+        diff_threshold = 0.15
+    else:  # Evidence ít liên quan
+        support_threshold = 0.60
+        refute_threshold = 0.55
+        diff_threshold = 0.18
     
-    # Refuted: clear refutation with significant margin
-    if refute_score > 0.55 and score_diff < -0.15:
+    # ƯU TIÊN 1: Refuted - kiểm tra refute trước (vì refutation thường rõ ràng hơn)
+    # Refuted: clear refutation với threshold thấp hơn
+    if refute_score > refute_threshold and score_diff < -diff_threshold:
         justification = f"Bằng chứng cho thấy yêu cầu bị bác bỏ (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
         return "Refuted", justification
+    
+    # Refuted với threshold thấp hơn nếu alignment cao (evidence rất liên quan)
+    if mean_alignment > 0.8 and refute_score > 0.40 and refute_score > support_score and score_diff < -0.10:
+        justification = f"Bằng chứng cho thấy yêu cầu bị bác bỏ (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
+        return "Refuted", justification
+    
+    # ƯU TIÊN 2: Supported - clear support with significant margin
+    if support_score > support_threshold and score_diff > diff_threshold:
+        justification = f"Bằng chứng cho thấy yêu cầu được hỗ trợ (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
+        return "Supported", justification
     
     # Low alignment: evidence doesn't clearly relate to claim
     if mean_alignment < 0.35:
@@ -505,19 +550,24 @@ def classify_verdict(aggregated_scores: Dict[str, float], min_evidence_threshold
         return "Not Enough Evidence", justification
     
     # Mixed or unclear evidence
-    if abs(score_diff) < 0.15:
+    if abs(score_diff) < diff_threshold:
         justification = f"Bằng chứng hỗn hợp hoặc không rõ ràng (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
         return "Not Enough Evidence", justification
     
     # Weak support (not strong enough)
-    if support_score > refute_score and support_score <= 0.55:
+    if support_score > refute_score and support_score <= support_threshold:
         justification = f"Bằng chứng có xu hướng hỗ trợ nhưng chưa đủ mạnh (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
         return "Not Enough Evidence", justification
     
-    # Weak refutation (not strong enough)
-    if refute_score > support_score and refute_score <= 0.55:
-        justification = f"Bằng chứng có xu hướng bác bỏ nhưng chưa đủ mạnh (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
-        return "Not Enough Evidence", justification
+    # Weak refutation (not strong enough) - nhưng vẫn có thể là refuted nếu alignment cao
+    if refute_score > support_score:
+        if refute_score > 0.40 and mean_alignment > 0.8:
+            # Nếu refute score > 0.40 và alignment cao, có thể là refuted
+            justification = f"Bằng chứng cho thấy yêu cầu bị bác bỏ (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
+            return "Refuted", justification
+        else:
+            justification = f"Bằng chứng có xu hướng bác bỏ nhưng chưa đủ mạnh (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
+            return "Not Enough Evidence", justification
     
     # Default fallback - insufficient evidence
     justification = f"Bằng chứng không đủ để xác nhận hoặc bác bỏ rõ ràng (điểm hỗ trợ: {support_score:.2f}, điểm bác bỏ: {refute_score:.2f}, điểm căn chỉnh trung bình: {mean_alignment:.2f})."
