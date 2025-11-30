@@ -2,7 +2,7 @@ import re
 import os
 import json
 import concurrent.futures
-from .modules import planning, evidence_synthesis, evaluation, retriver_rav, llm
+from .modules import planning, evidence_synthesis, evaluation, retriver_rav, llm, claim_detection
 from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
@@ -133,6 +133,9 @@ class FactChecker:
             print(f"Error processing action line '{line}': {e}")
 
     def run(self):
+        self.claim = claim_detection.claim_filter(self.claim)
+        print(f"Filtered claim: {self.claim}")
+
         queries = planning.plan(self.claim)
         queries_lines = [x.strip() for x in queries.split('\n')]
         action_lines = ["web_search(\"" + line + "\")" for line in queries_lines]
