@@ -1,3 +1,6 @@
+import os
+from functools import lru_cache
+
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import numpy as np
 import nltk
@@ -5,57 +8,10 @@ import nltk
 from nltk.tokenize import sent_tokenize
 import requests
 from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
-import threading
 
-# Global model cache to avoid loading models multiple times (saves RAM)
-_MODEL_CACHE = {
-    'bi_model': None,
-    'cross_model': None
-}
-
-# Thread locks to ensure thread-safe model loading
-_MODEL_LOCKS = {
-    'bi_model': threading.Lock(),
-    'cross_model': threading.Lock()
-}
-
-def _get_bi_model():
-    """Get or create bi-encoder model (singleton pattern, thread-safe)"""
-    # Double-check locking pattern for thread safety
-    if _MODEL_CACHE['bi_model'] is None:
-        with _MODEL_LOCKS['bi_model']:
-            # Check again after acquiring lock (another thread might have loaded it)
-            if _MODEL_CACHE['bi_model'] is None:
-                print("Loading SentenceTransformer model (first time, may take a moment)...")
-                _MODEL_CACHE['bi_model'] = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-                print("✓ SentenceTransformer model loaded")
-    return _MODEL_CACHE['bi_model']
-
-def _get_cross_model():
-    """Get or create cross-encoder model (singleton pattern, thread-safe)"""
-    # Double-check locking pattern for thread safety
-    #if _MODEL_CACHE['cross_model'] is None:
-        #with _MODEL_LOCKS['cross_model']:
-            # Check again after acquiring lock (another thread might have loaded it)
-            #if _MODEL_CACHE['cross_model'] is None:
-            #    print("Loading CrossEncoder model (first time, may take a moment)...")
-            #    _MODEL_CACHE['cross_model'] = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
-            #    print("✓ CrossEncoder model loaded")
-    return _MODEL_CACHE['cross_model']
-
-def clear_model_cache():
-    """Clear model cache to free memory (useful when processing many claims) - thread-safe"""
-    with _MODEL_LOCKS['bi_model']:
-        if _MODEL_CACHE['bi_model'] is not None:
-            del _MODEL_CACHE['bi_model']
-            _MODEL_CACHE['bi_model'] = None
-    with _MODEL_LOCKS['cross_model']:
-        if _MODEL_CACHE['cross_model'] is not None:
-            del _MODEL_CACHE['cross_model']
-            _MODEL_CACHE['cross_model'] = None
-    import gc
-    gc.collect()
-    print("Model cache cleared")
+_EMBED_DEVICE = os.getenv("FACTCHECKER_EMBED_DEVICE")
+_BI_MODEL_NAME = os.getenv("FACTCHECKER_BI_ENCODER", "paraphrase-multilingual-MiniLM-L12-v2")
+_CROSS_MODEL_NAME = os.getenv("FACTCHECKER_CROSS_ENCODER", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 def scrape_text(url):
     try:
@@ -82,13 +38,29 @@ def chunk_text(text, chunk_size=50):
         chunks.append(current_chunk.strip())
     return chunks
 
+@lru_cache(maxsize=1)
+def _get_bi_model(model_name=_BI_MODEL_NAME):
+    kwargs = {}
+    if _EMBED_DEVICE:
+        kwargs["device"] = _EMBED_DEVICE
+    return SentenceTransformer(model_name, **kwargs)
+
+
+@lru_cache(maxsize=1)
+def _get_cross_model(model_name=_CROSS_MODEL_NAME):
+    kwargs = {}
+    if _EMBED_DEVICE:
+        kwargs["device"] = _EMBED_DEVICE
+    return CrossEncoder(model_name, **kwargs)
+
+
 def get_top_evidence(claim, text, top_k_chunks=5):
     all_chunks = chunk_text(text)
 
     if not all_chunks:
         return "No evidence found."
     
-    # Use cached models instead of loading each time
+    # 3. Bi-encoder
     bi_model = _get_bi_model()
     claim_emb = bi_model.encode(claim)
     chunk_embs = bi_model.encode(all_chunks)
@@ -99,7 +71,7 @@ def get_top_evidence(claim, text, top_k_chunks=5):
     top_indices = np.argsort(-cos_sims)[:top_k_chunks]
     top_chunks = [all_chunks[i] for i in top_indices]
     
-    # Use cached cross-encoder model
+    # 4. Cross-encoder re-rank
     cross_model = _get_cross_model()
     pairs = [[claim, ch] for ch in top_chunks]
     scores = cross_model.predict(pairs)
