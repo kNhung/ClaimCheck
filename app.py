@@ -96,7 +96,7 @@ if run_btn:
     if report_json and report_json.get("judged_verdict"):
         with st.expander("Giải thích chi tiết"):
             st.markdown(report_json["judged_verdict"])
-    st.markdown(f"📁 Báo cáo: `{report_dir}`")
+    st.markdown(f"📁 Báo cáo: {report_dir}")
 
     st.divider()
 
@@ -105,7 +105,7 @@ if run_btn:
     with st.expander("Xem bằng chứng", expanded=False):
         if report_json and report_json.get("actions"):
             for action_id, info in report_json["actions"].items():
-                st.markdown(f"**{action_id}**")
+                st.markdown(f"*{action_id}*")
                 results = info.get("results") or {}
                 for url, item in results.items():
                     summary = item.get("summary")
@@ -113,4 +113,3 @@ if run_btn:
                     st.write(summary)
         else:
             st.info("Chưa có bằng chứng.")
-
