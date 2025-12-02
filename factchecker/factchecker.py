@@ -13,18 +13,18 @@ from .report import report_writer
 import fcntl
 
 RULES_PROMPT = """
-Supported
-- Dùng khi có bằng chứng rõ ràng, trực tiếp và đáng tin cậy ỦNG HỘ yêu cầu.
-- Nếu yêu cầu có nhiều khía cạnh, TẤT CẢ các khía cạnh phải được ỦNG HỘ để chọn phán quyết này.
+Supported (Có căn cứ)
+1. Chỉ chọn khi có bằng chứng rõ ràng, đáng tin cậy và liên hệ trực tiếp với nội dung Claim.
+2. Nếu yêu cầu gồm nhiều luận điểm, TẤT CẢ các luận điểm đều phải được xác nhận là đúng thì mới chọn Supported.
 
-Refuted
-- Dùng khi có bằng chứng rõ ràng BÁC BỎ hoặc MÂU THUẪN trực tiếp với yêu cầu.
-- Nếu yêu cầu có nhiều khía cạnh, dù chỉ 1 khía cạnh bị BÁC BỎ trong khi các khía cạnh còn lại được ủng hộ cũng đủ để chọn phán quyết này.
+Refuted (Bị bác bỏ)
+1. Áp dụng khi bằng chứng đáng tin cậy cho thấy Claim sai, mâu thuẫn hoặc bị bác bỏ trực tiếp.
+2. Nếu Claim có nhiều luận điểm, chỉ cần MỘT luận điểm bị bác bỏ là đủ để kết luận toàn bộ yêu cầu Refuted.
 
-Not Enough Evidence
-- Dùng khi KHÔNG ĐỦ bằng chứng để xác nhận hoặc bác bỏ yêu cầu.
-- Cũng dùng nếu yêu cầu quá MƠ HỒ hoặc không thể kiểm chứng bằng dữ liệu hiện có.
-- Nếu yêu cầu có nhiều khía cạnh, chỉ cần 1 khía cạnh không đủ bằng chứng để chọn phán quyết này.
+Not Enough Evidence (Thiếu bằng chứng)
+1. Dùng khi không có đủ dữ liệu đáng tin cậy để khẳng định đúng/sai.
+2. Áp dụng khi Claim quá mơ hồ, thiếu thông tin, hoặc không thể kiểm chứng với nguồn hiện có.
+3. Với Claim có nhiều luận điểm, chỉ cần MỘT luận điểm thiếu bằng chứng là phải chọn Not Enough Evidence.
 """
 
 LABEL_MAP = {
@@ -157,8 +157,9 @@ class FactChecker:
                             print(f"Skipping unsupported domain: {result}")
                             return None
 
-                        with self._timers.track(f"scrape:{domain}"):
+                        with self._timers.track(f"scrape:{urls}"):
                             scraped_content = web_scraper.scrape_url_content(result)
+                        
                         if not scraped_content:
                             print(f"Skipping empty scrape for: {result}")
                             return None

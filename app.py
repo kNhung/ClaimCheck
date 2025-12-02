@@ -64,13 +64,6 @@ if run_btn:
     # Handle image upload
     image_path = None
     multimodal = False
-    if uploaded_image is not None:
-        multimodal = True
-        # Save uploaded image to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_image.name)[1]) as tmp_file:
-            tmp_file.write(uploaded_image.getbuffer())
-            image_path = tmp_file.name
-
     with st.status("Đang lập kế hoạch, thu thập bằng chứng và suy luận...", expanded=True) as status:
         try:
             status.write("Bắt đầu chạy pipeline...")
