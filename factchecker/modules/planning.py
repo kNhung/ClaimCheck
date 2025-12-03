@@ -109,6 +109,95 @@ def is_claim_length_acceptable(claim: str, max_words: int = 30, max_chars: int =
     return word_count <= max_words and char_count <= max_chars
 
 
+def validate_query(query: str, original_claim: str = None) -> Tuple[bool, str]:
+    """
+    Validate query để đảm bảo không chứa prompt leak và hợp lệ.
+    
+    Args:
+        query: Query cần validate
+        original_claim: Claim gốc để kiểm tra query có chứa từ khóa quan trọng không
+    
+    Returns:
+        Tuple[bool, str]: (is_valid, reason) - True nếu hợp lệ, False nếu không và lý do
+    """
+    if not query or not query.strip():
+        return False, "Query rỗng"
+    
+    query_lower = query.lower().strip()
+    
+    # Kiểm tra prompt leak patterns (mở rộng danh sách)
+    prompt_leak_patterns = [
+        "dưới đây là",
+        "câu tìm kiếm đã rút ngắn",
+        "câu tìm kiếm:",
+        "rất nhiều thông tin",
+        "không cần thiết",
+        "quy tắc",
+        "hướng dẫn",
+        "định dạng đầu ra",
+        "yêu cầu gốc:",
+        "kết quả:",
+        "ví dụ:",
+        "yêu cầu này có thể",
+        "có thể giúp tôi",
+        "giúp tôi cải thiện",
+        "cải thiện chi tiết",
+        "chi tiết hơn",
+        "câu hỏi của bạn",
+        "yêu cầu của bạn",
+        "theo yêu cầu",
+        "đáp ứng yêu cầu",
+        "bạn muốn",
+        "bạn cần",
+        "để tìm kiếm",
+        "để tra cứu",
+    ]
+    
+    for pattern in prompt_leak_patterns:
+        if pattern in query_lower:
+            return False, f"Chứa prompt leak: '{pattern}'"
+    
+    # Kiểm tra query chỉ là hướng dẫn/mô tả (không phải query thực sự)
+    instruction_starters = [
+        "bạn được",
+        "hãy",
+        "bạn cần",
+        "bạn phải",
+        "hãy thử",
+        "bạn có thể",
+        "để",
+    ]
+    
+    first_few_words = ' '.join(query.split()[:3]).lower()
+    for starter in instruction_starters:
+        if first_few_words.startswith(starter):
+            return False, f"Query bắt đầu bằng hướng dẫn: '{starter}'"
+    
+    # Kiểm tra độ dài tối thiểu (tăng lên 5 từ)
+    words = query.split()
+    if len(words) < 5:
+        return False, f"Query quá ngắn ({len(words)} từ, tối thiểu 5 từ)"
+    
+    # Kiểm tra query không chỉ là dấu câu hoặc từ đơn lẻ
+    meaningful_words = [w for w in words if len(w) > 1 and w.lower() not in VIETNAMESE_STOPWORDS]
+    if len(meaningful_words) < 2:
+        return False, "Query không chứa đủ từ có nghĩa"
+    
+    # Kiểm tra query có chứa từ khóa từ claim không (nếu có claim gốc)
+    if original_claim:
+        claim_tokens = set([w.lower() for w in word_tokenize(original_claim)
+                           if w.lower() not in VIETNAMESE_STOPWORDS and len(w) > 1])
+        query_tokens = set([w.lower() for w in word_tokenize(query)
+                           if w.lower() not in VIETNAMESE_STOPWORDS and len(w) > 1])
+        
+        # Kiểm tra có ít nhất 2 từ khóa chung (entities/keywords quan trọng)
+        overlap = claim_tokens & query_tokens
+        if len(overlap) < 2:
+            return False, f"Query chỉ có {len(overlap)} từ khóa chung với claim (cần ít nhất 2 từ khóa)"
+    
+    return True, ""
+
+
 def shorten_claim_with_llm(claim: str) -> str:
     """
     Dùng LLM để rút ngắn claim nhưng vẫn giữ thông tin quan trọng (tên riêng, thời gian, địa điểm).
@@ -153,8 +242,9 @@ CÂU TÌM KIẾM đã rút ngắn:
     try:
         shortened = prompt_ollama(prompt, think=False)
         
-        # Làm sạch kết quả: loại bỏ text thừa và khoảng trắng
-        shortened = ' '.join(shortened.split()).strip()
+        # Nếu LLM trả về nhiều dòng (bao gồm cả hướng dẫn), giữ lại toàn bộ để xử lý sau
+        # nhưng loại bỏ khoảng trắng thừa ở hai đầu.
+        shortened = shortened.strip()
         
         # Loại bỏ các prefix/suffix thừa mà LLM có thể thêm vào
         unwanted_prefixes = [
@@ -177,7 +267,7 @@ CÂU TÌM KIẾM đã rút ngắn:
             'câu tìm kiếm cuối cùng:',
         ]
         
-        # Loại bỏ prefix (kiểm tra cả startswith và contains)
+        # Loại bỏ prefix (kiểm tra startswith)
         shortened_lower = shortened.lower()
         for prefix in unwanted_prefixes:
             if shortened_lower.startswith(prefix):
@@ -186,30 +276,60 @@ CÂU TÌM KIẾM đã rút ngắn:
                 shortened = re.sub(r'^[:,\s]+', '', shortened)
                 break
         
+        # Pattern 0: Nếu có nhiều dòng, loại bỏ các dòng hướng dẫn dạng bullet
+        lines = [ln.strip() for ln in shortened.splitlines() if ln.strip()]
+        if len(lines) > 1:
+            filtered_lines = []
+            instruction_keywords = [
+                "tên riêng", "thời gian cụ thể", "số liệu", "con số quan trọng",
+                "từ nối", "từ mô tả", "phần giải thích", "từ chỉ", "danh từ", "tính từ"
+            ]
+            for ln in lines:
+                ln_lower = ln.lower()
+                # Loại các bullet line bắt đầu bằng dấu '-' hoặc chứa các cụm chỉ dẫn rõ ràng
+                if ln_lower.startswith('-'):
+                    if any(k in ln_lower for k in instruction_keywords):
+                        continue
+                if any(k in ln_lower for k in instruction_keywords) and '{claim}' not in ln_lower:
+                    continue
+                filtered_lines.append(ln)
+            if filtered_lines:
+                # Ưu tiên dòng dài nhất trong các dòng đã lọc (thường là câu tìm kiếm)
+                shortened = max(filtered_lines, key=len)
+                shortened_lower = shortened.lower()
+        
         # Pattern 1: Tìm text trong ngoặc kép (thường là query thực sự)
         quoted_match = re.search(r'[""]([^""]+)[""]', shortened)
         if quoted_match:
             shortened = quoted_match.group(1).strip()
         
-        # Pattern 2: Loại bỏ các câu mô tả/hướng dẫn ở đầu
-        # Tìm câu dài nhất (thường là query thực sự)
+        # Pattern 2: Loại bỏ các câu mô tả/hướng dẫn ở đầu.
+        # Ưu tiên câu chứa ít nhất một từ quan trọng từ claim.
         sentences = re.split(r'[.!?]\s+', shortened)
         if len(sentences) > 1:
-            # Tìm câu dài nhất (có thể là query)
-            longest_sentence = max(sentences, key=len)
-            # Nếu câu dài nhất có ít nhất 10 từ, có thể là query
-            if len(longest_sentence.split()) >= 10:
-                shortened = longest_sentence.strip()
-            else:
-                # Nếu không, lấy câu cuối cùng (thường là kết quả)
-                shortened = sentences[-1].strip()
+            claim_tokens = [w.lower() for w in word_tokenize(claim)
+                            if w.lower() not in VIETNAMESE_STOPWORDS and len(w) > 1]
+            best_sentence = None
+            best_overlap = -1
+            for s in sentences:
+                s_clean = s.strip()
+                if not s_clean:
+                    continue
+                s_tokens = [w.lower() for w in word_tokenize(s_clean)
+                            if w.lower() not in VIETNAMESE_STOPWORDS and len(w) > 1]
+                overlap = len(set(s_tokens) & set(claim_tokens))
+                if overlap > best_overlap or (overlap == best_overlap and len(s_tokens) > len(best_sentence.split()) if best_sentence else True):
+                    best_sentence = s_clean
+                    best_overlap = overlap
+            if best_sentence:
+                shortened = best_sentence.strip()
         
         # Pattern 3: Loại bỏ các pattern như "1. Thời gian...", "2. Số liệu..."
         # Nếu bắt đầu bằng số và dấu chấm, loại bỏ
         shortened = re.sub(r'^\d+\.\s*', '', shortened)
         
-        # Pattern 4: Loại bỏ các câu mô tả dài dòng ở đầu
-        # Nếu có dấu hai chấm, lấy phần sau dấu hai chấm
+        # Pattern 4: Loại bỏ các câu mô tả dài dòng ở đầu.
+        # Nếu có dấu hai chấm, lấy phần sau dấu hai chấm nếu đủ dài.
         if ':' in shortened:
             parts = shortened.split(':', 1)
             if len(parts) == 2:
@@ -240,6 +360,13 @@ CÂU TÌM KIẾM đã rút ngắn:
             words = shortened.split()[:30]
             shortened = ' '.join(words)
         
+        # VALIDATION: Kiểm tra query có hợp lệ không
+        is_valid, reason = validate_query(shortened, original_claim=claim)
+        if not is_valid:
+            print(f"Warning: LLM-generated query không hợp lệ: {reason}. Query: '{shortened[:100]}'")
+            # Fallback: dùng rule-based simplification
+            return simplify_claim(claim, max_words=20)
+        
         return shortened if shortened else claim
     except Exception as e:
         print(f"Error shortening claim with LLM: {e}")
@@ -267,50 +394,73 @@ def generate_queries_rule_based(claim: str, use_llm_for_long_claims: bool = True
         # Claim ngắn: dùng nguyên vẹn
         clean_claim = ' '.join(claim.split())
         if clean_claim and clean_claim.lower() not in seen:
-            queries.append(clean_claim)
-            seen.add(clean_claim.lower())
+            # Validate query trước khi thêm
+            is_valid, _ = validate_query(clean_claim, original_claim=claim)
+            if is_valid:
+                queries.append(clean_claim)
+                seen.add(clean_claim.lower())
     elif use_llm_for_long_claims:
         # Claim dài: rút ngắn bằng LLM
         shortened_claim = shorten_claim_with_llm(claim)
         if shortened_claim and shortened_claim.lower() not in seen:
-            queries.append(shortened_claim)
-            seen.add(shortened_claim.lower())
+            # Validate lại sau khi LLM rút ngắn (đã validate trong shorten_claim_with_llm nhưng kiểm tra lại)
+            is_valid, _ = validate_query(shortened_claim, original_claim=claim)
+            if is_valid:
+                queries.append(shortened_claim)
+                seen.add(shortened_claim.lower())
+            else:
+                # Nếu LLM query không hợp lệ, fallback về rule-based
+                simplified = simplify_claim(claim, max_words=20)
+                is_valid_fallback, _ = validate_query(simplified, original_claim=claim)
+                if is_valid_fallback and simplified.lower() not in seen:
+                    queries.append(simplified)
+                    seen.add(simplified.lower())
     else:
         # Fallback: dùng rule-based simplification
         simplified = simplify_claim(claim, max_words=20)
         if simplified and simplified.lower() not in seen:
-            queries.append(simplified)
-            seen.add(simplified.lower())
+            is_valid, _ = validate_query(simplified, original_claim=claim)
+            if is_valid:
+                queries.append(simplified)
+                seen.add(simplified.lower())
     
     # Query 1: Entity + Keywords (backup)
     if entities and keywords:
         query1 = generate_query_from_entities(entities, keywords)
-        if query1 and len(query1.split()) >= 2 and query1.lower() not in seen:
-            queries.append(query1)
-            seen.add(query1.lower())
+        if query1 and query1.lower() not in seen:
+            is_valid, _ = validate_query(query1, original_claim=claim)
+            if is_valid:
+                queries.append(query1)
+                seen.add(query1.lower())
     
     # Query 2: Chỉ entities (backup)
     if entities:
         entity_query = ' '.join(entities[:3])  # Tăng lên 3 để bao gồm nhiều entities hơn
         if entity_query and entity_query.lower() not in seen:
-            queries.append(entity_query)
-            seen.add(entity_query.lower())
+            is_valid, _ = validate_query(entity_query, original_claim=claim)
+            if is_valid:
+                queries.append(entity_query)
+                seen.add(entity_query.lower())
     
     # Query 3: Claim đã rút gọn bằng rule-based (nếu chưa có)
     if len(claim.split()) > 15:
         simplified = simplify_claim(claim, max_words=15)
-        if simplified and simplified.lower() not in seen and len(simplified.split()) >= 3:
-            queries.append(simplified)
-            seen.add(simplified.lower())
+        if simplified and simplified.lower() not in seen:
+            is_valid, _ = validate_query(simplified, original_claim=claim)
+            if is_valid:
+                queries.append(simplified)
+                seen.add(simplified.lower())
     
     # Query 4: Key phrases (backup, chỉ thêm nếu chưa đủ queries)
     if phrases and len(queries) < 3:
         for phrase in phrases[:2]:
-            if phrase.lower() not in seen and len(phrase.split()) >= 2:
-                queries.append(phrase)
-                seen.add(phrase.lower())
-                if len(queries) >= 3:
-                    break
+            if phrase.lower() not in seen:
+                is_valid, _ = validate_query(phrase, original_claim=claim)
+                if is_valid:
+                    queries.append(phrase)
+                    seen.add(phrase.lower())
+                    if len(queries) >= 3:
+                        break
     
     # Đảm bảo tối thiểu 1 query
     if not queries:
