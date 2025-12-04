@@ -1,8 +1,23 @@
 # factchecker/modules/planning.py
 
 import re
-from underthesea import word_tokenize, pos_tag, ner
+from underthesea import word_tokenize, pos_tag
 from typing import List, Tuple
+import dotenv
+dotenv.load_dotenv()
+
+import logging
+logging.getLogger("transformers").setLevel(logging.ERROR)
+
+# Import cho NER multilingual (Hugging Face Transformers)
+from transformers import pipeline
+
+NER_MODEL = dotenv.get_key("FACTCHECKER_NER_MODEL", "Davlan/xlm-roberta-base-wikiann-ner")
+
+# Load NER pipeline multilingual (XLM-RoBERTa fine-tuned cho NER trên WikiANN)
+# Model: Davlan/xlm-roberta-base-wikiann-ner
+# Hỗ trợ đa ngôn ngữ thực sự, bao gồm tiếng Việt và tiếng Anh
+ner_pipeline = pipeline("ner", model=NER_MODEL, aggregation_strategy="simple")
 
 # Stopwords tiếng Việt (mở rộng)
 VIETNAMESE_STOPWORDS = {
@@ -20,14 +35,12 @@ def extract_entities_and_keywords(claim: str) -> Tuple[List[str], List[str], Lis
     Returns:
         Tuple[List[str], List[str], List[str]]: (entities, keywords, phrases)
     """
-    # 1. NER để tìm thực thể
-    entities_result = ner(claim)
+    # 1. NER để tìm thực thể (dùng model multilingual)
+    entities_result = ner_pipeline(claim)
     entities = []
     for entity in entities_result:
-        if len(entity) == 4:  # Format: (word, pos, chunk, ner_label)
-            word, _, _, label = entity
-            if label in ['PER', 'ORG', 'LOC', 'MISC']:
-                entities.append(word)
+        if entity['entity_group'] in ['PER', 'ORG', 'LOC', 'MISC']:
+            entities.append(entity['word'])
     
     # 2. POS tagging để tìm từ khóa quan trọng
     tokens = pos_tag(claim)
