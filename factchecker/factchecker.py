@@ -191,6 +191,10 @@ class FactChecker:
             with self._timers.track("factcheck_run"):
                 with self._timers.track("claim_filtering"):
                     self.claim = claim_detection.claim_filter(self.claim)
+                    if self.claim is None or self.claim.strip() == "":
+                        print("No valid claim detected after filtering.")
+                        raise ValueError("No valid claim detected after filtering. Fact-checking cannot proceed.") 
+
                     print(f"Filtered claim: {self.claim}")
 
                 with self._timers.track("planning"):
@@ -376,6 +380,10 @@ class FactChecker:
 # For backward compatibility, provide a function interface
 
 def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=MAX_ACTIONS, expected_label=None, model_name=None):
-    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
-    verdict, report_path = checker.run()
-    return verdict, report_path
+    try:
+        checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
+        verdict, report_path = checker.run()
+        return verdict, report_path
+    except ValueError as e:
+        print(f"Factcheck failed due to invalid claim: {e}")
+        return None, None
