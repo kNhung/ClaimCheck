@@ -128,7 +128,7 @@ if __name__ == "__main__":
         )
         
         # Get content from report for CSV
-        evidence, reasoning, verdict_text, justification = report_writer.get_report_content()
+        evidence, action_needed, verdict_text, justification = report_writer.get_report_content()
         
         # Write to CSV with claim_id
         csv_path = os.path.join(os.getcwd(), 'reports', run_identifier, 'detailed_results.csv')
@@ -136,7 +136,7 @@ if __name__ == "__main__":
             claim=claim,
             date=date,
             evidence=evidence,
-            reasoning=reasoning,
+            action_needed=action_needed,
             verdict=verdict,
             justification=justification,
             report_path=report_path,

@@ -54,13 +54,36 @@ def _get_cross_model(model_name=_CROSS_MODEL_NAME):
     return CrossEncoder(model_name, **kwargs)
 
 
-def get_top_evidence(claim, text, top_k_chunks=5):
+def get_top_evidence(claim, text, top_k_chunks=None, p=10, q=3):
+    """
+    RAV (Retrieval-Augmented Verification) để lấy top evidence từ text.
+    
+    Args:
+        claim: Câu claim cần fact-check
+        text: Text cần tìm evidence
+        top_k_chunks: (Deprecated) Giữ để backward compatibility. Nếu được set, dùng cho cả p và q.
+        p: Số lượng top candidates từ bi-encoder (default: 10)
+        q: Số lượng top candidates từ cross-encoder sau khi re-rank (default: 1)
+    
+    Returns:
+        Nếu q=1: str - best chunk
+        Nếu q>1: str - các chunks được join lại
+    """
     all_chunks = chunk_text(text)
 
     if not all_chunks:
         return "No evidence found."
     
-    # 3. Bi-encoder
+    # Backward compatibility: nếu top_k_chunks được set, dùng cho cả p và q
+    if top_k_chunks is not None:
+        p = top_k_chunks
+        q = 1
+    
+    # Đảm bảo p >= q và p không vượt quá số chunks
+    p = min(p, len(all_chunks))
+    q = min(q, p)
+    
+    # Step 1: Bi-encoder - lấy top p candidates
     bi_model = _get_bi_model()
     claim_emb = bi_model.encode(claim)
     chunk_embs = bi_model.encode(all_chunks)
@@ -68,17 +91,22 @@ def get_top_evidence(claim, text, top_k_chunks=5):
     chunk_embs /= np.linalg.norm(chunk_embs, axis=1, keepdims=True)
     cos_sims = np.dot(chunk_embs, claim_emb)
     
-    top_indices = np.argsort(-cos_sims)[:top_k_chunks]
-    top_chunks = [all_chunks[i] for i in top_indices]
+    # Lấy top p indices
+    top_p_indices = np.argsort(-cos_sims)[:p]
+    top_p_chunks = [all_chunks[i] for i in top_p_indices]
     
-    # 4. Cross-encoder re-rank
+    # Step 2: Cross-encoder re-rank - lấy top q từ p candidates
     cross_model = _get_cross_model()
-    pairs = [[claim, ch] for ch in top_chunks]
-    scores = cross_model.predict(pairs)
-    best_idx = np.argmax(scores)
-    best_chunk = top_chunks[best_idx]
+    pairs = [[claim, ch] for ch in top_p_chunks]
+    cross_scores = cross_model.predict(pairs)
     
-    # Clear intermediate arrays to free memory
-    del claim_emb, chunk_embs, cos_sims, pairs, scores
+    # Lấy top q từ cross-encoder scores
+    top_q_indices = np.argsort(-cross_scores)[:q]
+    top_q_chunks = [top_p_chunks[i] for i in top_q_indices]
     
-    return best_chunk
+    # Trả về kết quả
+    if q == 1:
+        return top_q_chunks[0]
+    else:
+        # Join các chunks lại với nhau
+        return " ".join(top_q_chunks)

@@ -361,22 +361,22 @@ def plan(claim: str, think: bool = True, use_hybrid: bool = False, use_llm_for_l
             # Fallback to LLM (giữ code cũ)
             from .llm import prompt_ollama
             plan_prompt = """HƯỚNG DẪN
-Kiến thức hiện tại vẫn chưa đủ để đánh giá tính xác thực của YÊU CẦU.
-Hãy in ra CÂU TÌM KIẾM để thu thập bằng chứng mới, theo đúng quy tắc sau:
+            Kiến thức hiện tại vẫn chưa đủ để đánh giá tính xác thực của YÊU CẦU.
+            Hãy in ra CÂU TÌM KIẾM để thu thập bằng chứng mới, theo đúng quy tắc sau:
 
-### QUY TẮC:
-- CÂU TÌM KIẾM là một cụm từ hoặc câu ngắn gọn dùng để tìm kiếm thông tin trên web.
-- CÂU TÌM KIẾM liên quan trực tiếp đến YÊU CẦU và chứa ít nhất một từ khóa hoặc thực thể trong YÊU CẦU.
-- QUAN TRỌNG: Phải bao gồm tên riêng, địa danh, và thời gian nếu có trong YÊU CẦU.
+            ### QUY TẮC:
+            - CÂU TÌM KIẾM là một cụm từ hoặc câu ngắn gọn dùng để tìm kiếm thông tin trên web.
+            - CÂU TÌM KIẾM liên quan trực tiếp đến YÊU CẦU và chứa ít nhất một từ khóa hoặc thực thể trong YÊU CẦU.
+            - QUAN TRỌNG: Phải bao gồm tên riêng, địa danh, và thời gian nếu có trong YÊU CẦU.
 
-### YÊU CẦU: 
-{claim}
+            ### YÊU CẦU: 
+            {claim}
 
-### ĐỊNH DẠNG ĐẦU RA BẮT BUỘC:
-Chỉ in CÂU TÌM KIẾM, KHÔNG in thêm mô tả hay giải thích.
+            ### ĐỊNH DẠNG ĐẦU RA BẮT BUỘC:
+            Chỉ in CÂU TÌM KIẾM, KHÔNG in thêm mô tả hay giải thích.
 
-In ra câu tìm kiếm của bạn:
-"""
+            In ra câu tìm kiếm của bạn:
+            """
             prompt = plan_prompt.format(claim=claim)
             llm_response = prompt_ollama(prompt, think=False)
             return llm_response
