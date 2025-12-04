@@ -65,7 +65,8 @@ def run_factcheck_process(claim: str, cutoff_date: Optional[str], claim_id: str)
             claim,
             cutoff_date,
             identifier=claim_id,
-            model_name=os.getenv("FACTCHECK_MODEL_NAME")
+            # Unified env var: FACTCHECKER_MODEL_NAME (fallback to legacy FACTCHECK_MODEL_NAME)
+            model_name=os.getenv("FACTCHECKER_MODEL_NAME") or os.getenv("FACTCHECK_MODEL_NAME")
         )
         
         # Ensure the completion marker is added

@@ -57,7 +57,12 @@ if __name__ == "__main__":
     
     # Set default model name if not provided
     if not model_name:
-        model_name = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
+        # Unified primary env var: FACTCHECKER_MODEL_NAME (with backward-compatible fallback)
+        model_name = (
+            os.getenv("FACTCHECKER_MODEL_NAME")
+            or os.getenv("FACTCHECK_MODEL_NAME")
+            or "qwen3:4b"
+        )
     
     # Set random seed if shuffle is enabled
     if shuffle:

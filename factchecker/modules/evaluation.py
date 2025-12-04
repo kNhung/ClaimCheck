@@ -1435,7 +1435,7 @@ def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str],
         return evidence_pieces, [0.5] * len(evidence_pieces)
 
 
-def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int = 3) -> str:
+def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int = 5) -> str:
     """
     Dùng LLM (Ollama) để ra phán quyết dựa trên claim + các bằng chứng web.
     Giảm tối đa rule-based; LLM chịu trách nhiệm phân loại NLI.
@@ -1444,9 +1444,9 @@ def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int 
     BƯỚC 2: Chọn top_k evidence liên quan nhất.
     BƯỚC 3: LLM judge với prompt yêu cầu kiểm tra relevance.
     """
-    # BƯỚC 1: Lọc evidence không liên quan (relevance threshold = 0.2, giảm từ 0.3)
+    # BƯỚC 1: Lọc evidence không liên quan (relevance threshold = 0.15, giảm để giữ nhiều evidence hơn)
     filtered_evidence, relevance_scores = filter_evidence_by_relevance(
-        claim, evidence_pieces, relevance_threshold=0.2
+        claim, evidence_pieces, relevance_threshold=0.15
     )
     
     # Nếu không có evidence nào liên quan, trả về Not Enough Evidence ngay
@@ -1482,20 +1482,33 @@ def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int 
     prompt = f"""Phân loại YÊU CẦU dựa trên BẰNG CHỨNG. Trả về JSON.
 
 NHÃN:
-- "Supported": Bằng chứng ỦNG HỘ claim (trùng khớp, xác nhận)
-- "Refuted": Bằng chứng BÁC BỎ claim (mâu thuẫn, sai)
-- "Not Enough Evidence": Bằng chứng không liên quan, thiếu, hoặc mâu thuẫn nhẹ
+- "Supported": Bằng chứng ỦNG HỘ claim (mô tả lại cùng sự kiện, cùng thực thể, cùng bối cảnh chính; không có mâu thuẫn quan trọng nào với claim).
+- "Refuted": Bằng chứng BÁC BỎ claim (khẳng định điều ngược lại, hoặc cho thấy claim sai rõ ràng).
+- "Not Enough Evidence": Khi (a) bằng chứng không nói về sự kiện/đối tượng trong claim, HOẶC (b) có liên quan nhưng thông tin còn thiếu/mơ hồ, chưa thể khẳng định đúng hay sai.
 
-QUY TẮC:
-1. Kiểm tra bằng chứng có nói về chủ đề/thực thể của claim không. Nếu không → "Not Enough Evidence"
-2. Nếu liên quan, so sánh chi tiết claim với bằng chứng:
-   - Nếu bằng chứng XÁC NHẬN claim (trùng khớp >80%) → "Supported"
-   - Nếu bằng chứng MÂU THUẪN với claim (sai rõ ràng) → "Refuted"
-   - Chỉ chọn "Not Enough Evidence" nếu bằng chứng không đủ để kết luận (mơ hồ, thiếu thông tin quan trọng)
-3. ⚠️ QUAN TRỌNG: Phân tích kỹ lưỡng trước khi chọn "Not Enough Evidence". Nếu bằng chứng rõ ràng support/refute, hãy chọn nhãn đó.
+QUY TẮC QUAN TRỌNG:
+1. Đầu tiên, kiểm tra mỗi [Ei] có nói về ĐÚNG sự kiện/đối tượng/thời gian trong claim hay không.
+   - Nếu [Ei] mô tả lại CÙNG sự kiện (ví dụ: cùng địa điểm, cùng ngày/tháng/năm, cùng nhân vật, cùng số liệu chính) → coi là LIÊN QUAN MẠNH.
+   - Nếu [Ei] KHÔNG nói về đúng sự kiện/đối tượng trong claim (ví dụ: khác địa điểm, khác nhân vật, khác thời gian) → coi là KHÔNG LIÊN QUAN.
+
+2. Khi có ít nhất một [Ei] LIÊN QUAN MẠNH:
+   - Nếu nội dung [Ei] PHÙ HỢP với claim (không mâu thuẫn, mô tả lại đúng sự kiện) → ưu tiên chọn "Supported".
+   - Nếu nội dung [Ei] MÂU THUẪN với claim (chứng minh claim sai, số liệu/ngày tháng/ngữ nghĩa ngược lại) → chọn "Refuted".
+   - KHÔNG được chọn "Not Enough Evidence" trong trường hợp đã có bằng chứng rõ ràng support hoặc refute.
+
+3. ⚠️ QUAN TRỌNG: Chỉ chọn "Refuted" khi bằng chứng THẬT SỰ MÂU THUẪN với claim (chứng minh claim sai rõ ràng).
+   - KHÔNG được chọn "Refuted" chỉ vì bằng chứng không liên quan hoặc không đề cập đến claim.
+   - Nếu bằng chứng không liên quan → phải chọn "Not Enough Evidence", KHÔNG phải "Refuted".
+
+4. Chỉ chọn "Not Enough Evidence" khi:
+   - TẤT CẢ các [Ei] đều không nói về đúng sự kiện/đối tượng trong claim (KHÔNG LIÊN QUAN), HOẶC
+   - Có liên quan nhưng thiếu thông tin cốt lõi (ví dụ: chỉ nói chung chung, không đề cập đến điểm quan trọng của claim).
 
 ĐỊNH DẠNG (bắt buộc JSON, không có text khác):
-{{"verdict": "Supported|Refuted|Not Enough Evidence", "justification": "Giải thích ngắn, trích [Ei]"}}
+{{
+  "verdict": "Supported|Refuted|Not Enough Evidence",
+  "justification": "Giải thích ngắn, nêu rõ dùng [Ei] nào và vì sao."
+}}
 
 YÊU CẦU:
 {claim}
@@ -1599,4 +1612,5 @@ def judge(record, decision_options, rules="", think=True,
         return "### Justification:\nKhông tìm thấy bằng chứng nào trong bản ghi.\n\n### Verdict:\n`Not Enough Evidence`"
 
     # Gọi LLM để judge dựa trên claim + evidence (đã chọn top bằng CrossEncoder)
-    return _llm_judge_with_evidence(claim, evidence_pieces)
+    # Tăng top_k lên 5-6 để LLM có nhiều context hơn khi đánh giá
+    return _llm_judge_with_evidence(claim, evidence_pieces, top_k=6)

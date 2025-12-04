@@ -8,7 +8,8 @@ from datetime import datetime
 if __name__ == "__main__":
     claim = "Ông Putin nói Nga sẽ phản ứng mạnh nếu bị Tomahawk tấn công"
     cutoff_date = "24-10-2025"  # DD-MM-YYYY
-    model_name = os.getenv("FACTCHECK_MODEL_NAME")
+    # Prefer unified FACTCHECKER_MODEL_NAME but keep backward-compatible fallback
+    model_name = os.getenv("FACTCHECKER_MODEL_NAME") or os.getenv("FACTCHECK_MODEL_NAME")
 
     start_ts = datetime.now()
     start = perf_counter()

@@ -10,7 +10,13 @@ try:
 except Exception:
     pass
 
-DEFAULT_OLLAMA_MODEL = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
+# Unified primary env var: FACTCHECKER_MODEL_NAME
+# Backwards-compatible fallback to legacy FACTCHECK_MODEL_NAME if needed.
+DEFAULT_OLLAMA_MODEL = (
+    os.getenv("FACTCHECKER_MODEL_NAME")
+    or os.getenv("FACTCHECK_MODEL_NAME")
+    or "qwen3:4b"
+)
 REASONING_MODEL = os.getenv("FACTCHECKER_REASONING_MODEL", None)  # Use faster model for reasoning if set
 JUDGE_MODEL = os.getenv("FACTCHECKER_JUDGE_MODEL", None)  # Use faster model for judging if set
 
