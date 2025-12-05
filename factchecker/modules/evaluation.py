@@ -30,6 +30,8 @@ def _get_bi_model(model_name=_BI_MODEL_NAME):
     kwargs = {}
     if _EMBED_DEVICE:
         kwargs["device"] = _EMBED_DEVICE
+    # Prevent meta device usage in underlying transformers model
+    kwargs["model_kwargs"] = {"device_map": None}
     return SentenceTransformer(model_name, **kwargs)
 
 
@@ -39,6 +41,8 @@ def _get_cross_model(model_name=_CROSS_MODEL_NAME):
     kwargs = {}
     if _EMBED_DEVICE:
         kwargs["device"] = _EMBED_DEVICE
+    # Prevent meta device usage in underlying transformers model
+    kwargs["model_kwargs"] = {"device_map": None}
     return CrossEncoder(model_name, **kwargs)
 
 
