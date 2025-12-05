@@ -158,7 +158,10 @@ if not os.path.exists(TAG_PATH):
 
 # ------------------- Load model & tokenizer -------------------
 tokenizer = AutoTokenizer.from_pretrained("peterhung/vietnamese-accent-marker-xlm-roberta", add_prefix_space=True)
-model = AutoModelForTokenClassification.from_pretrained("peterhung/vietnamese-accent-marker-xlm-roberta")
+model = AutoModelForTokenClassification.from_pretrained(
+    "peterhung/vietnamese-accent-marker-xlm-roberta",
+    device_map=None  # Prevent meta device usage
+)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
