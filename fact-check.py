@@ -108,8 +108,8 @@ if __name__ == "__main__":
     # Thời gian Việt Nam
     VN_TIMEZONE = timezone(timedelta(hours=7))
     now_vn = datetime.now(VN_TIMEZONE)
-    # Tạo một thư mục chạy duy nhất theo định dạng ddmmyy-hhmm
-    run_identifier = now_vn.strftime("%d%m%y-%H%M")
+    # Tạo một thư mục chạy duy nhất theo định dạng yyyymmdd-hhmmss
+    run_identifier = now_vn.strftime("%Y%m%d-%H%M%S")
 
     # Tracking thời gian tổng thể
     total_start_time = datetime.now(VN_TIMEZONE)
