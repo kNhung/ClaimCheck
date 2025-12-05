@@ -12,6 +12,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from typing import Optional
 
 from .cache import get_cache
+# dotenv.load_dotenv() is called in factchecker/__init__.py
 
 
 def md(soup, **kwargs):

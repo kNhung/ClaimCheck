@@ -10,6 +10,8 @@ from nltk.tokenize import sent_tokenize
 import requests
 from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 
+# dotenv.load_dotenv() is called in factchecker/__init__.py
+
 _EMBED_DEVICE = os.getenv("FACTCHECKER_EMBED_DEVICE")
 _BI_MODEL_NAME = os.getenv("FACTCHECKER_BI_ENCODER", "paraphrase-multilingual-MiniLM-L12-v2")
 _CROSS_MODEL_NAME = os.getenv("FACTCHECKER_CROSS_ENCODER", "cross-encoder/ms-marco-MiniLM-L-6-v2")

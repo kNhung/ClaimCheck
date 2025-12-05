@@ -7,7 +7,6 @@ import pandas as pd
 import os
 import random
 from datetime import datetime, timezone, timedelta
-import gc 
     
 def csv_to_json(csv_path):
     # Read CSV file
