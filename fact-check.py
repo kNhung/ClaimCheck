@@ -110,6 +110,10 @@ if __name__ == "__main__":
     # Tạo một thư mục chạy duy nhất theo định dạng ddmmyy-hhmm
     run_identifier = now_vn.strftime("%d%m%y-%H%M")
 
+    # Tracking thời gian tổng thể
+    total_start_time = datetime.now(VN_TIMEZONE)
+    processing_times = []  # Lưu thời gian xử lý của từng sample
+    
     # Chạy fact-check cho từng claim
     for i, record in enumerate(data):
         claim = record["claim"]
@@ -120,6 +124,9 @@ if __name__ == "__main__":
         print(f"\n=== [{i+1}/{actual_num_records}] Fact-checking: {claim}")
         print(f"Expected label: {expected_label}")
         
+        # Bắt đầu đo thời gian cho sample này
+        sample_start_time = datetime.now(VN_TIMEZONE)
+        
         # Lưu kết quả vào reports/<ddmmyy-hhmm>/<id>/
         identifier = f"{run_identifier}/{claim_id}"
         verdict, report_path = factcheck(
@@ -129,6 +136,13 @@ if __name__ == "__main__":
             expected_label=expected_label,
             model_name=model_name
         )
+        
+        # Kết thúc đo thời gian cho sample này
+        sample_end_time = datetime.now(VN_TIMEZONE)
+        processing_time_seconds = (sample_end_time - sample_start_time).total_seconds()
+        processing_times.append(processing_time_seconds)
+        
+        print(f"⏱️  Thời gian xử lý sample này: {processing_time_seconds:.2f} giây")
         
         # Get content from report for CSV
         evidence, reasoning, verdict_text, justification = report_writer.get_report_content()
@@ -146,12 +160,30 @@ if __name__ == "__main__":
             csv_path=csv_path,
             expected_label=expected_label,
             claim_id=claim_id,  # Pass the id
-            model_name=model_name
+            model_name=model_name,
+            processing_time=processing_time_seconds
         )
+    # Tính toán thời gian tổng thể
+    total_end_time = datetime.now(VN_TIMEZONE)
+    total_time_seconds = (total_end_time - total_start_time).total_seconds()
+    avg_time_seconds = sum(processing_times) / len(processing_times) if processing_times else 0
+    
+    # In ra thời gian ở cuối log
+    print("\n" + "=" * 80)
+    print("⏱️  THỐNG KÊ THỜI GIAN:")
+    print("=" * 80)
+    print(f"Tổng số samples đã xử lý: {len(processing_times)}")
+    print(f"Tổng thời gian: {total_time_seconds:.2f} giây ({total_time_seconds/60:.2f} phút)")
+    print(f"Thời gian trung bình mỗi sample: {avg_time_seconds:.2f} giây")
+    if processing_times:
+        print(f"Thời gian nhanh nhất: {min(processing_times):.2f} giây")
+        print(f"Thời gian chậm nhất: {max(processing_times):.2f} giây")
+    print("=" * 80 + "\n")
+    
     # After all samples processed: compute metrics once for the run
     csv_path = os.path.join(os.getcwd(), 'reports', run_identifier, 'detailed_results.csv')
     if os.path.exists(csv_path):
-        metrics = report_writer.calculate_metrics(csv_path)
+        metrics = report_writer.calculate_metrics(csv_path, avg_processing_time=avg_time_seconds, total_processing_time=total_time_seconds)
         if metrics:
             print("\nFinal Evaluation Metrics (all samples):")
             print(f"Accuracy: {metrics['accuracy']:.4f}")

@@ -141,7 +141,7 @@ class FactChecker:
                     with self._report_lock:
                         self.report["actions"][identifier] = action_entry
                     with self._timers.track(f"web_search:{query}"):
-                        urls, snippets = web_search.web_search(query, self.date, top_k=3)
+                        urls, snippets = web_search.web_search(query, self.date, top_k=5)
 
                     # Default with snippets from web_search
                     results_payload = {url: {"snippet": snippet, 'url': url, 'summary': None} for url, snippet in zip(urls, snippets)}
@@ -369,7 +369,7 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=1, expected_label=None, model_name=None):
+def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None, model_name=None):
     checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
     verdict, report_path = checker.run()
     

@@ -1473,41 +1473,87 @@ def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int 
     selected_evidence = [filtered_evidence[i] for i in selected_idx]
     selected_scores = [relevance_scores[i] for i in selected_idx]
 
+    # In ra danh sách bằng chứng trước khi đưa vào judge
+    print("\n" + "=" * 80)
+    print("📋 DANH SÁCH BẰNG CHỨNG ĐƯỢC CHỌN CHO JUDGE:")
+    print("=" * 80)
+    print(f"Claim: {claim}")
+    print(f"\nTổng số bằng chứng ban đầu: {len(evidence_pieces)}")
+    print(f"Số bằng chứng sau khi lọc (relevance > 0.15): {len(filtered_evidence)}")
+    print(f"Số bằng chứng được chọn (top_k={top_k}): {len(selected_evidence)}")
+    print("\n" + "-" * 80)
+    for i, (ev, score) in enumerate(zip(selected_evidence, selected_scores)):
+        print(f"\n[E{i}] (Relevance score: {score:.4f})")
+        ev_preview = ev
+        print(f"{ev_preview}")
+    print("\n" + "=" * 80 + "\n")
+
     # Xây prompt cho LLM (tiếng Việt, output JSON)
     evidence_block_lines = []
     for i, ev in enumerate(selected_evidence):
         evidence_block_lines.append(f"- [E{i}] {ev}")
     evidence_block = "\n".join(evidence_block_lines)
 
-    prompt = f"""Phân loại YÊU CẦU dựa trên BẰNG CHỨNG. Trả về JSON.
+    prompt = f"""Bạn là chuyên gia fact-checking. Hãy đánh giá YÊU CẦU dựa trên BẰNG CHỨNG được cung cấp.
 
-NHÃN:
-- "Supported": Bằng chứng ỦNG HỘ claim (mô tả lại cùng sự kiện, cùng thực thể, cùng bối cảnh chính; không có mâu thuẫn quan trọng nào với claim).
-- "Refuted": Bằng chứng BÁC BỎ claim (khẳng định điều ngược lại, hoặc cho thấy claim sai rõ ràng).
-- "Not Enough Evidence": Khi (a) bằng chứng không nói về sự kiện/đối tượng trong claim, HOẶC (b) có liên quan nhưng thông tin còn thiếu/mơ hồ, chưa thể khẳng định đúng hay sai.
+⚠️ QUY TẮC QUAN TRỌNG NHẤT:
+- CHỈ đánh giá những gì YÊU CẦU yêu cầu, KHÔNG được thêm thông tin từ [Ei] vào YÊU CẦU khi đánh giá
+- Nếu YÊU CẦU chỉ nói về sự kiện A, thì CHỈ kiểm tra xem [Ei] có xác nhận sự kiện A không
+- KHÔNG được yêu cầu thêm chi tiết từ [Ei] nếu YÊU CẦU không đề cập đến những chi tiết đó
+- Ví dụ: Nếu YÊU CẦU chỉ nói "thông báo về số học sinh nghỉ ốm tăng", thì CHỈ cần kiểm tra xem có thông báo đó không, KHÔNG được yêu cầu thêm số lượng cụ thể, triệu chứng, v.v. nếu YÊU CẦU không đề cập
 
-QUY TẮC QUAN TRỌNG:
-1. Đầu tiên, kiểm tra mỗi [Ei] có nói về ĐÚNG sự kiện/đối tượng/thời gian trong claim hay không.
-   - Nếu [Ei] mô tả lại CÙNG sự kiện (ví dụ: cùng địa điểm, cùng ngày/tháng/năm, cùng nhân vật, cùng số liệu chính) → coi là LIÊN QUAN MẠNH.
-   - Nếu [Ei] KHÔNG nói về đúng sự kiện/đối tượng trong claim (ví dụ: khác địa điểm, khác nhân vật, khác thời gian) → coi là KHÔNG LIÊN QUAN.
+QUY TRÌNH ĐÁNH GIÁ (theo thứ tự):
 
-2. Khi có ít nhất một [Ei] LIÊN QUAN MẠNH:
-   - Nếu nội dung [Ei] PHÙ HỢP với claim (không mâu thuẫn, mô tả lại đúng sự kiện) → ưu tiên chọn "Supported".
-   - Nếu nội dung [Ei] MÂU THUẪN với claim (chứng minh claim sai, số liệu/ngày tháng/ngữ nghĩa ngược lại) → chọn "Refuted".
-   - KHÔNG được chọn "Not Enough Evidence" trong trường hợp đã có bằng chứng rõ ràng support hoặc refute.
+BƯỚC 1: PHÂN TÍCH YÊU CẦU
+- Đọc kỹ YÊU CẦU, xác định CHÍNH XÁC những gì YÊU CẦU yêu cầu xác nhận:
+  * Đối tượng chính (ai, cái gì)
+  * Thời gian (khi nào)
+  * Địa điểm (ở đâu)
+  * Sự kiện cốt lõi (chuyện gì xảy ra)
+- GHI NHỚ: CHỈ đánh giá những điểm này, KHÔNG thêm thông tin khác từ [Ei]
 
-3. ⚠️ QUAN TRỌNG: Chỉ chọn "Refuted" khi bằng chứng THẬT SỰ MÂU THUẪN với claim (chứng minh claim sai rõ ràng).
-   - KHÔNG được chọn "Refuted" chỉ vì bằng chứng không liên quan hoặc không đề cập đến claim.
-   - Nếu bằng chứng không liên quan → phải chọn "Not Enough Evidence", KHÔNG phải "Refuted".
+BƯỚC 2: XÁC ĐỊNH BẰNG CHỨNG LIÊN QUAN
+- Với mỗi [Ei], kiểm tra xem có đề cập đến CÙNG đối tượng/thời gian/địa điểm/sự kiện với YÊU CẦU không
+- BỎ QUA các thông tin không liên quan trong [Ei] (ví dụ: thông tin về cơ quan khác, sự kiện khác thời điểm, chi tiết không có trong YÊU CẦU)
+- Chỉ tập trung vào phần liên quan trực tiếp đến YÊU CẦU
 
-4. Chỉ chọn "Not Enough Evidence" khi:
-   - TẤT CẢ các [Ei] đều không nói về đúng sự kiện/đối tượng trong claim (KHÔNG LIÊN QUAN), HOẶC
-   - Có liên quan nhưng thiếu thông tin cốt lõi (ví dụ: chỉ nói chung chung, không đề cập đến điểm quan trọng của claim).
+BƯỚC 3: ĐÁNH GIÁ NỘI DUNG
+- Nếu có ít nhất một [Ei] LIÊN QUAN MẠNH (nói về đúng sự kiện/đối tượng mà YÊU CẦU đề cập):
+  * So sánh nội dung [Ei] với YÊU CẦU:
+    - Nếu [Ei] KHẲNG ĐỊNH/CỦNG CỐ phần cốt lõi của YÊU CẦU → "Supported"
+    - Nếu [Ei] PHỦ ĐỊNH YÊU CẦU (chứng minh YÊU CẦU sai) → "Refuted"
+- Nếu TẤT CẢ [Ei] đều KHÔNG LIÊN QUAN đến phần cốt lõi của YÊU CẦU → "Not Enough Evidence"
 
-ĐỊNH DẠNG (bắt buộc JSON, không có text khác):
+ĐỊNH NGHĨA NHÃN:
+
+1. "Supported" - Chọn khi:
+   ✓ Có ít nhất một [Ei] liên quan mạnh (nói về đúng sự kiện/đối tượng mà YÊU CẦU đề cập)
+   ✓ [Ei] KHẲNG ĐỊNH/CỦNG CỐ phần cốt lõi của YÊU CẦU
+   ✓ Không có mâu thuẫn về thông tin quan trọng mà YÊU CẦU đề cập
+   ⚠️ QUAN TRỌNG: Nếu [Ei] xác nhận phần cốt lõi của YÊU CẦU, phải chọn "Supported" ngay cả khi [Ei] có thêm thông tin chi tiết mà YÊU CẦU không đề cập
+
+2. "Refuted" - Chọn khi:
+   ✓ Có ít nhất một [Ei] liên quan mạnh
+   ✓ [Ei] nói về CÙNG sự kiện/đối tượng nhưng
+   ✓ Nội dung [Ei] MÂU THUẪN/PHỦ ĐỊNH YÊU CẦU (chứng minh YÊU CẦU sai rõ ràng)
+   ⚠️ KHÔNG chọn "Refuted" nếu [Ei] chỉ không liên quan hoặc không đề cập đến YÊU CẦU (phải chọn "Not Enough Evidence")
+
+3. "Not Enough Evidence" - Chọn khi:
+   ✓ TẤT CẢ [Ei] đều không nói về đúng sự kiện/đối tượng trong YÊU CẦU (khác địa điểm, khác thời gian, khác nhân vật)
+   ✓ HOẶC [Ei] không đề cập đến phần cốt lõi mà YÊU CẦU yêu cầu xác nhận
+   ⚠️ KHÔNG chọn "Not Enough Evidence" chỉ vì [Ei] thiếu thông tin chi tiết mà YÊU CẦU không yêu cầu
+
+LƯU Ý QUAN TRỌNG:
+- CHỈ đánh giá những gì YÊU CẦU yêu cầu, KHÔNG được thêm thông tin từ [Ei] vào YÊU CẦU
+- Nếu YÊU CẦU chỉ yêu cầu xác nhận sự kiện A, và [Ei] xác nhận sự kiện A → chọn "Supported" ngay cả khi [Ei] có thêm chi tiết khác
+- Không bị confuse bởi thông tin phụ trong [Ei] (địa chỉ, số điện thoại, thông tin không liên quan)
+- Chỉ so sánh phần CỐT LÕI của YÊU CẦU với [Ei]
+- Nếu có bằng chứng rõ ràng support/refute phần cốt lõi của YÊU CẦU, KHÔNG được chọn "Not Enough Evidence"
+
+ĐỊNH DẠNG ĐẦU RA (bắt buộc JSON, không có text khác):
 {{
   "verdict": "Supported|Refuted|Not Enough Evidence",
-  "justification": "Giải thích ngắn, nêu rõ dùng [Ei] nào và vì sao."
+  "justification": "Giải thích ngắn gọn (1-2 câu), nêu rõ [Ei] nào được dùng và lý do chọn nhãn này."
 }}
 
 YÊU CẦU:
@@ -1520,7 +1566,16 @@ JSON:
 """
 
     try:
-        raw = llm.prompt_ollama(prompt, think=False, use_judge_model=True)
+        # Kiểm tra judge provider từ env var
+        judge_provider = os.getenv("FACTCHECKER_JUDGE_PROVIDER", "ollama").lower()
+        
+        if judge_provider == "gemini":
+            # Dùng Gemini API
+            gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+            raw = llm.prompt_gemini(prompt, model=gemini_model)
+        else:
+            # Mặc định dùng Ollama
+            raw = llm.prompt_ollama(prompt, think=False, use_judge_model=True)
     except Exception as e:
         # Nếu LLM lỗi, fallback an toàn
         justification = f"Lỗi khi gọi LLM judge: {e}. Mặc định Not Enough Evidence."
@@ -1612,5 +1667,5 @@ def judge(record, decision_options, rules="", think=True,
         return "### Justification:\nKhông tìm thấy bằng chứng nào trong bản ghi.\n\n### Verdict:\n`Not Enough Evidence`"
 
     # Gọi LLM để judge dựa trên claim + evidence (đã chọn top bằng CrossEncoder)
-    # Tăng top_k lên 5-6 để LLM có nhiều context hơn khi đánh giá
-    return _llm_judge_with_evidence(claim, evidence_pieces, top_k=6)
+    # Dùng top_k=3 để tập trung vào bằng chứng liên quan nhất, tránh nhiễu
+    return _llm_judge_with_evidence(claim, evidence_pieces, top_k=3)

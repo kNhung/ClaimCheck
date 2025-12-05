@@ -77,7 +77,7 @@ def append_justification(justification):
     except Exception as e:
         print(f"Error appending justification: {e}")
 
-def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None):
+def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None, processing_time=None):
     """Writes detailed fact-checking results to a CSV file with fixed columns.
     Ensures a sample is only written once (skip if same report_path or id already present)."""
     try:
@@ -140,7 +140,8 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 'compare',
                 'timestamp',
                 'report_path',
-                'model'
+                'model',
+                'processing_time'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             if not file_exists:
@@ -160,12 +161,13 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 'compare': 1 if (label_num is not None and pred_num is not None and label_num == pred_num) else 0,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'report_path': report_path or "",
-                'model': model_name or ""
+                'model': model_name or "",
+                'processing_time': f"{processing_time:.2f}" if processing_time is not None else ""
             })
     except Exception as e:
         print(f"Error writing to CSV: {e}")
 
-def calculate_metrics(csv_path):
+def calculate_metrics(csv_path, avg_processing_time=None, total_processing_time=None):
     """Calculate metrics using numeric labels and write them to metrics.txt"""
     try:
         print(f"Reading CSV from: {csv_path}")
@@ -254,6 +256,14 @@ def calculate_metrics(csv_path):
                 if model_names:
                     mf.write("\n\nModels used:\n")
                     mf.write(", ".join(model_names))
+                # Thêm thông tin thời gian
+                mf.write("\n\n" + "=" * 50 + "\n")
+                mf.write("THỐNG KÊ THỜI GIAN:\n")
+                mf.write("=" * 50 + "\n")
+                if total_processing_time is not None:
+                    mf.write(f"Tổng thời gian: {total_processing_time:.2f} giây ({total_processing_time/60:.2f} phút)\n")
+                if avg_processing_time is not None:
+                    mf.write(f"Thời gian trung bình mỗi sample: {avg_processing_time:.2f} giây\n")
             print(f"Successfully wrote metrics to {metrics_path}")
         except Exception as e:
             print(f"Error writing metrics file: {e}")
