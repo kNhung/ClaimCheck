@@ -14,6 +14,8 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import os
 import torch
 from . import llm
+import dotenv
+dotenv.load_dotenv()
 
 # Use same models as retriver_rav for consistency
 _EMBED_DEVICE = os.getenv("FACTCHECKER_EMBED_DEVICE")
@@ -473,11 +475,11 @@ def detect_contradiction(claim: str, evidence: str) -> float:
     return min(1.0, contradiction_score)
 
 
-def evidence_reasoning_network(G: nx.Graph, claim_emb: np.ndarray, 
+def evidence_action_needed_network(G: nx.Graph, claim_emb: np.ndarray, 
                                 evidence_embs: List[np.ndarray], 
                                 num_layers: int = 2, use_attention: bool = True) -> Tuple[np.ndarray, List[np.ndarray]]:
     """
-    ERNet-like message passing for evidence reasoning (GEAR style).
+    ERNet-like message passing for evidence action_needed (GEAR style).
     Multiple layers of information propagation between claim and evidence nodes.
     
     Args:
@@ -892,7 +894,7 @@ def aggregate_evidence_with_graph(G: nx.Graph, claim: str, evidence_pieces: List
     
     Uses:
     - Fully-connected graph (all evidence connected)
-    - Message passing (ERNet-like) for multi-step reasoning
+    - Message passing (ERNet-like) for multi-step action_needed
     - Separate support/refute detection (not based on alignment alone)
     - Attention-based aggregation
     
@@ -928,7 +930,7 @@ def aggregate_evidence_with_graph(G: nx.Graph, claim: str, evidence_pieces: List
         evidence_embs = embeddings[1:]
     
     # STEP 1: Message passing (ERNet-like, GEAR style)
-    refined_claim_emb, refined_evidence_embs = evidence_reasoning_network(
+    refined_claim_emb, refined_evidence_embs = evidence_action_needed_network(
         G, claim_emb, evidence_embs, num_layers=2, use_attention=use_attention
     )
     

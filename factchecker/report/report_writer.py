@@ -53,13 +53,13 @@ def append_raw(evidence):
     except Exception as e:
         print(f"Error appending evidence: {e}")
 
-def append_reasoning(reasoning):
+def append_action_needed(action_needed):
     try:
         with open(REPORT_PATH, "a") as f:
-            f.write("### Reasoning\n\n")
-            f.write(reasoning.strip() + "\n\n")
+            f.write("### Action Needed\n\n")
+            f.write(action_needed.strip() + "\n\n")
     except Exception as e:
-        print(f"Error appending reasoning: {e}")
+        print(f"Error appending action_needed: {e}")
 
 def append_verdict(verdict):
     try:
@@ -132,6 +132,7 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
             fieldnames = [
                 'id',
                 'claim',
+                'clean_claim',
                 'evidence',
                 'reasoning',
                 'verdict',
@@ -149,10 +150,12 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
 
             evidence_clean = ' '.join(evidence.strip().split()) if evidence else ""
             reasoning_clean = ' '.join(reasoning.strip().split()) if reasoning else ""
+            clean_claim = ' '.join(claim.strip().split()) if claim else ""
 
             writer.writerow({
                 'id': claim_id if claim_id is not None else "",
                 'claim': claim,
+                'clean_claim': clean_claim,
                 'evidence': evidence_clean,
                 'reasoning': reasoning_clean,
                 'verdict': verdict,
@@ -283,7 +286,7 @@ def get_report_content():
         return None, None, None, None
         
     evidence = ""
-    reasoning = ""
+    action_needed = ""
     verdict = ""
     justification = ""
     current_section = None
@@ -301,14 +304,14 @@ def get_report_content():
                     
                 if 'Evidence' in section:
                     evidence = section.replace('Evidence', '').strip()
-                elif 'Reasoning' in section:
-                    reasoning = section.replace('Reasoning', '').strip()
+                elif 'action_needed' in section:
+                    action_needed = section.replace('action_needed', '').strip()
                 elif 'Verdict' in section:
                     verdict = section.replace('Verdict', '').strip()
                 elif 'Justification' in section:
                     justification = section.replace('Justification', '').strip()
                     
-        return evidence, reasoning, verdict, justification
+        return evidence, action_needed, verdict, justification
         
     except Exception as e:
         print(f"Error reading report content: {e}")
