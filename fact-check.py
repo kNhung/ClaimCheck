@@ -1,3 +1,5 @@
+from env_config import *  # Load environment variables
+
 from factchecker.factchecker import factcheck
 from factchecker.report import report_writer
 from factchecker.preprocessing.preprocessing import preprocess

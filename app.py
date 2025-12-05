@@ -3,6 +3,7 @@ import tempfile
 from datetime import date
 
 import streamlit as st
+from env_config import *  # Load environment variables
 
 # Configuration
 model_name = os.getenv("FACTCHECKER_MODEL_NAME", "qwen2.5:0.5b")

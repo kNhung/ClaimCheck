@@ -1,3 +1,2 @@
 # Make factchecker a proper package
-import dotenv
-dotenv.load_dotenv()
+# dotenv.load_dotenv() is called in env_config.py
