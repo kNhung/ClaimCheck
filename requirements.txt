@@ -126,7 +126,7 @@ pandas==2.2.3
 parso==0.8.4
 peft==0.14.0
 pexpect==4.9.0
-pillow==11.0.0
+pillow==10.4.0
 pillow-avif-plugin==1.5.2
 platformdirs==4.3.6
 preshed==3.0.9
