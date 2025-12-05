@@ -53,13 +53,13 @@ def append_raw(evidence):
     except Exception as e:
         print(f"Error appending evidence: {e}")
 
-def append_reasoning(reasoning):
+def append_action_needed(action_needed):
     try:
         with open(REPORT_PATH, "a") as f:
-            f.write("### Reasoning\n\n")
-            f.write(reasoning.strip() + "\n\n")
+            f.write("### Action Needed\n\n")
+            f.write(action_needed.strip() + "\n\n")
     except Exception as e:
-        print(f"Error appending reasoning: {e}")
+        print(f"Error appending action_needed: {e}")
 
 def append_verdict(verdict):
     try:
@@ -77,7 +77,7 @@ def append_justification(justification):
     except Exception as e:
         print(f"Error appending justification: {e}")
 
-def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None):
+def write_detailed_csv(claim, date, evidence, action_needed, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None):
     """Writes detailed fact-checking results to a CSV file with fixed columns.
     Ensures a sample is only written once (skip if same report_path or id already present)."""
     try:
@@ -133,7 +133,7 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 'id',
                 'claim',
                 'evidence',
-                'reasoning',
+                'action_needed',
                 'verdict',
                 'predicted_label',
                 'expected_label',
@@ -147,13 +147,13 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 writer.writeheader()
 
             evidence_clean = ' '.join(evidence.strip().split()) if evidence else ""
-            reasoning_clean = ' '.join(reasoning.strip().split()) if reasoning else ""
+            action_needed_clean = ' '.join(action_needed.strip().split()) if action_needed else ""
 
             writer.writerow({
                 'id': claim_id if claim_id is not None else "",
                 'claim': claim,
                 'evidence': evidence_clean,
-                'reasoning': reasoning_clean,
+                'action_needed': action_needed_clean,
                 'verdict': verdict,
                 'predicted_label': pred_num if pred_num is not None else "",
                 'expected_label': label_num if label_num is not None else "",
@@ -273,7 +273,7 @@ def get_report_content():
         return None, None, None, None
         
     evidence = ""
-    reasoning = ""
+    action_needed = ""
     verdict = ""
     justification = ""
     current_section = None
@@ -291,14 +291,14 @@ def get_report_content():
                     
                 if 'Evidence' in section:
                     evidence = section.replace('Evidence', '').strip()
-                elif 'Reasoning' in section:
-                    reasoning = section.replace('Reasoning', '').strip()
+                elif 'action_needed' in section:
+                    action_needed = section.replace('action_needed', '').strip()
                 elif 'Verdict' in section:
                     verdict = section.replace('Verdict', '').strip()
                 elif 'Justification' in section:
                     justification = section.replace('Justification', '').strip()
                     
-        return evidence, reasoning, verdict, justification
+        return evidence, action_needed, verdict, justification
         
     except Exception as e:
         print(f"Error reading report content: {e}")

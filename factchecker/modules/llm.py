@@ -10,14 +10,8 @@ try:
 except Exception:
     pass
 
-# Unified primary env var: FACTCHECKER_MODEL_NAME
-# Backwards-compatible fallback to legacy FACTCHECK_MODEL_NAME if needed.
-DEFAULT_OLLAMA_MODEL = (
-    os.getenv("FACTCHECKER_MODEL_NAME")
-    or os.getenv("FACTCHECK_MODEL_NAME")
-    or "qwen3:4b"
-)
-REASONING_MODEL = os.getenv("FACTCHECKER_REASONING_MODEL", None)  # Use faster model for reasoning if set
+DEFAULT_OLLAMA_MODEL = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
+ACTION_NEEDED_MODEL = os.getenv("FACTCHECKER_ACTION_NEEDED_MODEL", None)  # Use faster model for action_needed if set
 JUDGE_MODEL = os.getenv("FACTCHECKER_JUDGE_MODEL", None)  # Use faster model for judging if set
 
 
@@ -30,22 +24,10 @@ def get_default_ollama_model():
     return DEFAULT_OLLAMA_MODEL
 
 
-def prompt_gpt(prompt, model='o4-mini-2025-04-16'):
-    openai.api_key = os.getenv("OPENAI_API_KEY", "your-api-key-here")
-    client = openai.OpenAI(api_key=openai.api_key)
-
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return response.choices[0].message.content
-
-def prompt_ollama(prompt, model=None, think=True, use_reasoning_model=False, use_judge_model=False):
+def prompt_ollama(prompt, model=None, think=True, use_action_needed_model=False, use_judge_model=False):
     if not model:
-        if use_reasoning_model and REASONING_MODEL:
-            model = REASONING_MODEL
+        if use_action_needed_model and ACTION_NEEDED_MODEL:
+            model = ACTION_NEEDED_MODEL
         elif use_judge_model and JUDGE_MODEL:
             model = JUDGE_MODEL
         else:

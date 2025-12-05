@@ -6,7 +6,7 @@ import concurrent.futures
 from threading import Lock
 from contextlib import contextmanager
 from urllib.parse import urlparse
-from .modules import planning, evidence_synthesis, evaluation, retriver_rav, llm
+from .modules import planning, evidence_synthesis, evaluation, retriver_rav, llm, claim_detection
 from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
@@ -75,7 +75,7 @@ class FactChecker:
             "identifier": self.identifier,
             "model": self.model_name,
             "actions": {},
-            "reasoning": [],
+            "action_needed": [],
             "verdict": None,
             "justification": None,
             "report_path": self.report_path,
@@ -186,6 +186,10 @@ class FactChecker:
     def run(self):
         try:
             with self._timers.track("factcheck_run"):
+                with self._timers.track("claim_filtering"):
+                    self.claim = claim_detection.claim_filter(self.claim)
+                    print(f"Filtered claim: {self.claim}")
+
                 with self._timers.track("planning"):
                     queries = planning.plan(self.claim, think=False)
                 
@@ -212,30 +216,30 @@ class FactChecker:
 
                 iterations = 0
                 seen_action_lines = set(action_lines)
-                reasoning_conclusion = None
+                action_needed_conclusion = None
                 while iterations <= 2:
-                    with self._timers.track(f"reasoning_iter_{iterations+1}"):
+                    with self._timers.track(f"action_needed_iter_{iterations+1}"):
                         # Use smaller trimmed record for faster processing
-                        reasoning = evidence_synthesis.develop(record=self.get_trimmed_record(max_chars=3000), think=False)
+                        action_needed = evidence_synthesis.develop(record=self.get_trimmed_record(max_chars=3000), think=False)
 
-                    print(f"Developed reasoning:\n{reasoning}")
-                    report_writer.append_reasoning(reasoning)
+                    print(f"Developed action_needed:\n{action_needed}")
+                    report_writer.append_action_needed(action_needed)
 
                     with self._report_lock:
-                        self.report["reasoning"].append(reasoning)
+                        self.report["action_needed"].append(action_needed)
                     self.save_report_json()
 
-                    # Check if reasoning already concluded we have enough evidence
-                    reasoning_lower = reasoning.lower()
-                    if 'đã đủ bằng chứng' in reasoning_lower or 'đủ bằng chứng' in reasoning_lower:
-                        reasoning_conclusion = "SUFFICIENT"
-                        print("[REASONING] Early exit: Sufficient evidence found")
+                    # Check if action_needed already concluded we have enough evidence
+                    action_needed_lower = action_needed.lower()
+                    if 'đã đủ bằng chứng' in action_needed_lower or 'đủ bằng chứng' in action_needed_lower:
+                        action_needed_conclusion = "SUFFICIENT"
+                        print("[action_needed] Early exit: Sufficient evidence found")
                         break
 
-                    reasoning_action_lines = [x.strip() for x in reasoning.split('\n')]
+                    action_needed_action_lines = [x.strip() for x in action_needed.split('\n')]
                     # Extract actions from format "TÌM KIẾM: <query>" (from dev-knhung)
                     extracted_actions = []
-                    for line in reasoning_action_lines:
+                    for line in action_needed_action_lines:
                         if line.lower() == 'none':
                             extracted_actions.append('NONE')
                         elif 'TÌM KIẾM:' in line:
@@ -247,28 +251,28 @@ class FactChecker:
                     
                     # Also check for standard action format (from HEAD)
                     if not extracted_actions:
-                        reasoning_action_lines = [
-                            line for line in reasoning_action_lines if re.match(r'((\w+)_search\("([^"]+)"\)|NONE)', line, re.IGNORECASE)
+                        action_needed_action_lines = [
+                            line for line in action_needed_action_lines if re.match(r'((\w+)_search\("([^"]+)"\)|NONE)', line, re.IGNORECASE)
                         ]
                     else:
-                        reasoning_action_lines = extracted_actions
+                        action_needed_action_lines = extracted_actions
 
-                    print(f"Extracted reasoning action lines: {reasoning_action_lines}")
+                    print(f"Extracted action_needed action lines: {action_needed_action_lines}")
 
-                    if not reasoning_action_lines or (
-                        len(reasoning_action_lines) == 1 and reasoning_action_lines[0].strip().lower() == 'none'
+                    if not action_needed_action_lines or (
+                        len(action_needed_action_lines) == 1 and action_needed_action_lines[0].strip().lower() == 'none'
                     ):
                         break
 
-                    if any(line in seen_action_lines for line in reasoning_action_lines):
+                    if any(line in seen_action_lines for line in action_needed_action_lines):
                         print('Duplicate action line detected. Stopping iterations.')
                         break
 
-                    seen_action_lines.update(reasoning_action_lines)
+                    seen_action_lines.update(action_needed_action_lines)
 
-                    with self._timers.track(f"reasoning_action_exec_{iterations+1}"):
+                    with self._timers.track(f"action_needed_action_exec_{iterations+1}"):
                         with concurrent.futures.ThreadPoolExecutor() as executor:
-                            list(executor.map(self.process_action_line, reasoning_action_lines))
+                            list(executor.map(self.process_action_line, action_needed_action_lines))
 
                     iterations += 1
 
@@ -279,14 +283,14 @@ class FactChecker:
                 rules = RULES_PROMPT
                 verdict = None
                 
-                # If reasoning already concluded sufficient evidence, try to extract verdict from reasoning
-                if reasoning_conclusion == "SUFFICIENT":
-                    # Try to extract verdict directly from reasoning to skip expensive judge call
-                    reasoning_text = self.report["reasoning"][-1] if self.report["reasoning"] else ""
-                    if 'supported' in reasoning_text.lower() or 'hỗ trợ' in reasoning_text.lower():
+                # If action_needed already concluded sufficient evidence, try to extract verdict from action_needed
+                if action_needed_conclusion == "SUFFICIENT":
+                    # Try to extract verdict directly from action_needed to skip expensive judge call
+                    action_needed_text = self.report["action_needed"][-1] if self.report["action_needed"] else ""
+                    if 'supported' in action_needed_text.lower() or 'hỗ trợ' in action_needed_text.lower():
                         pred_verdict = "Supported"
-                        verdict = f"### Justification:\n{reasoning_text}\n\n### Verdict:\n`Supported`"
-                        print("[JUDGE] Skipped judge call, using reasoning conclusion: Supported")
+                        verdict = f"### Justification:\n{action_needed_text}\n\n### Verdict:\n`Supported`"
+                        print("[JUDGE] Skipped judge call, using action_needed conclusion: Supported")
                 
                 # If we don't have a verdict yet, call judge
                 if not verdict:
@@ -355,10 +359,9 @@ class FactChecker:
                             pred_verdict = "INVALID VERDICT"
                             print("No decision options found in verdict, defaulting to 'INVALID VERDICT'.")
 
-                report_writer.append_verdict(verdict)
+                report_writer.append_verdict(pred_verdict)
                 report_writer.append_justification(verdict)
                 with self._report_lock:
-                    self.report["judged_verdict"] = verdict
                     self.report["justification"] = verdict
                     self.report["verdict"] = pred_verdict
                 self.save_report_json()
@@ -372,37 +375,4 @@ class FactChecker:
 def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=1, expected_label=None, model_name=None):
     checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
     verdict, report_path = checker.run()
-    
-    # try:
-    #     # Get base directory from report path
-    #     base_dir = os.path.dirname(os.path.dirname(report_path))
-    #     csv_path = os.path.join(base_dir, 'detailed_results.csv')
-        
-    #     # Get content from report
-    #     evidence, reasoning, verdict_text, justification = report_writer.get_report_content()
-        
-    #     # Convert numeric expected_label to text if needed
-    #     if expected_label is not None and isinstance(expected_label, (int, float)):
-    #         expected_label = LABEL_MAP.get(int(expected_label))
-            
-    #     # Convert verdict to numeric for metrics calculation
-    #     numeric_verdict = LABEL_MAP.get(verdict)
-        
-    #     # Write to CSV with both text and numeric verdicts
-    #     report_writer.write_detailed_csv(
-    #         claim=claim,
-    #         date=date,
-    #         evidence=evidence,
-    #         reasoning=reasoning,
-    #         verdict=verdict,
-    #         numeric_verdict=numeric_verdict,
-    #         justification=justification,
-    #         report_path=report_path,
-    #         csv_path=csv_path,
-    #         expected_label=expected_label
-    #     )
-    #     print(f"Detailed results written to: {csv_path}")
-    # except Exception as e:
-    #     print(f"Error writing detailed results to CSV: {e}")
-    
     return verdict, report_path
