@@ -253,7 +253,6 @@ class FactChecker:
 
                         with self._timers.track(f"scrape:{domain}"):
                             scraped_content = web_scraper.scrape_url_content(result)
-                        
                         if not scraped_content:
                             report_writer.log_step(
                                 "Web Scraping - Failed",
@@ -377,7 +376,7 @@ class FactChecker:
                 iterations = 0
                 seen_action_lines = set(action_lines)
                 action_needed_conclusion = None
-                while iterations <= -1:
+                while iterations <= 1:
                     # Log evidence synthesis step
                     synthesis_logs = []
                     report_writer.log_step(
