@@ -1481,30 +1481,20 @@ def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int 
         evidence_block_lines.append(f"- [E{i}] {ev}")
     evidence_block = "\n".join(evidence_block_lines)
 
-    prompt = f"""Phân loại YÊU CẦU dựa trên BẰNG CHỨNG. Trả về JSON.
-
+    prompt = f"""Phân loại YÊU CẦU dựa trên BẰNG CHỨNG thành 1 trong NHÃN. Trả về JSON.
 NHÃN:
-- "Supported": Bằng chứng ỦNG HỘ claim (mô tả lại cùng sự kiện, cùng thực thể, cùng bối cảnh chính; không có mâu thuẫn quan trọng nào với claim).
-- "Refuted": Bằng chứng BÁC BỎ claim (khẳng định điều ngược lại, hoặc cho thấy claim sai rõ ràng).
-- "Not Enough Evidence": Khi (a) bằng chứng không nói về sự kiện/đối tượng trong claim, HOẶC (b) có liên quan nhưng thông tin còn thiếu/mơ hồ, chưa thể khẳng định đúng hay sai.
+Supported
+- Dùng khi có bằng chứng E[i] rõ ràng, trực tiếp ỦNG HỘ yêu cầu.
+- Nếu yêu cầu có nhiều khía cạnh, TẤT CẢ các khía cạnh phải được ỦNG HỘ để chọn phán quyết này.
 
-QUY TẮC QUAN TRỌNG:
-1. Đầu tiên, kiểm tra mỗi [Ei] có nói về ĐÚNG sự kiện/đối tượng/thời gian trong claim hay không.
-   - Nếu [Ei] mô tả lại CÙNG sự kiện (ví dụ: cùng địa điểm, cùng ngày/tháng/năm, cùng nhân vật, cùng số liệu chính) → coi là LIÊN QUAN MẠNH.
-   - Nếu [Ei] KHÔNG nói về đúng sự kiện/đối tượng trong claim (ví dụ: khác địa điểm, khác nhân vật, khác thời gian) → coi là KHÔNG LIÊN QUAN.
+Refuted
+- Dùng khi có bằng chứng E[i] rõ ràng BÁC BỎ hoặc MÂU THUẪN trực tiếp với yêu cầu.
+- Nếu yêu cầu có nhiều khía cạnh, dù chỉ 1 khía cạnh bị BÁC BỎ trong khi các khía cạnh còn lại được ủng hộ cũng đủ để chọn phán quyết này.
 
-2. Khi có ít nhất một [Ei] LIÊN QUAN MẠNH:
-   - Nếu nội dung [Ei] PHÙ HỢP với claim (không mâu thuẫn, mô tả lại đúng sự kiện) → ưu tiên chọn "Supported".
-   - Nếu nội dung [Ei] MÂU THUẪN với claim (chứng minh claim sai, số liệu/ngày tháng/ngữ nghĩa ngược lại) → chọn "Refuted".
-   - KHÔNG được chọn "Not Enough Evidence" trong trường hợp đã có bằng chứng rõ ràng support hoặc refute.
-
-3. ⚠️ QUAN TRỌNG: Chỉ chọn "Refuted" khi bằng chứng THẬT SỰ MÂU THUẪN với claim (chứng minh claim sai rõ ràng).
-   - KHÔNG được chọn "Refuted" chỉ vì bằng chứng không liên quan hoặc không đề cập đến claim.
-   - Nếu bằng chứng không liên quan → phải chọn "Not Enough Evidence", KHÔNG phải "Refuted".
-
-4. Chỉ chọn "Not Enough Evidence" khi:
-   - TẤT CẢ các [Ei] đều không nói về đúng sự kiện/đối tượng trong claim (KHÔNG LIÊN QUAN), HOẶC
-   - Có liên quan nhưng thiếu thông tin cốt lõi (ví dụ: chỉ nói chung chung, không đề cập đến điểm quan trọng của claim).
+Not Enough Evidence
+- Dùng khi tất cả E[i] KHÔNG ĐỦ thông tin để xác nhận hoặc bác bỏ yêu cầu.
+- Cũng dùng nếu yêu cầu quá MƠ HỒ hoặc không thể kiểm chứng bằng dữ liệu hiện có.
+- Nếu yêu cầu có nhiều khía cạnh, chỉ cần 1 khía cạnh không đủ bằng chứng để chọn phán quyết này.
 
 ĐỊNH DẠNG (bắt buộc JSON, không có text khác):
 {{
