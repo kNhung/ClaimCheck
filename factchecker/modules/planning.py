@@ -3,6 +3,7 @@
 import re
 from underthesea import word_tokenize, pos_tag
 from typing import List, Tuple
+import os
 import dotenv
 dotenv.load_dotenv()
 
@@ -12,7 +13,7 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 # Import cho NER multilingual (Hugging Face Transformers)
 from transformers import pipeline
 
-NER_MODEL = dotenv.get_key("FACTCHECKER_NER_MODEL", "Davlan/xlm-roberta-base-wikiann-ner")
+NER_MODEL = os.getenv("FACTCHECKER_NER_MODEL", "Davlan/xlm-roberta-base-wikiann-ner")
 
 # Load NER pipeline multilingual (XLM-RoBERTa fine-tuned cho NER trên WikiANN)
 # Model: Davlan/xlm-roberta-base-wikiann-ner

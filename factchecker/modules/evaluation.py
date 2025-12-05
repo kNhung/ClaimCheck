@@ -14,6 +14,8 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import os
 import torch
 from . import llm
+import dotenv
+dotenv.load_dotenv()
 
 # Use same models as retriver_rav for consistency
 _EMBED_DEVICE = os.getenv("FACTCHECKER_EMBED_DEVICE")
@@ -928,7 +930,7 @@ def aggregate_evidence_with_graph(G: nx.Graph, claim: str, evidence_pieces: List
         evidence_embs = embeddings[1:]
     
     # STEP 1: Message passing (ERNet-like, GEAR style)
-    refined_claim_emb, refined_evidence_embs = evidence_reasoning_network(
+    refined_claim_emb, refined_evidence_embs = evidence_action_needed_network(
         G, claim_emb, evidence_embs, num_layers=2, use_attention=use_attention
     )
     
