@@ -37,6 +37,7 @@ FACTCHECKER_MAX_ACTIONS=2
 2. Install the required dependencies:
     ```bash
     pip install -r requirements.txt
+    playwright install chromium
     ```
 
 

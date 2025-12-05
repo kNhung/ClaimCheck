@@ -155,7 +155,7 @@ class FactChecker:
                             return None
 
                         with self._timers.track(f"scrape:{domain}"):
-                            scraped_content = web_scraper.scrape_url_content(result)
+                            scraped_content = web_scraper.scrape_url_content_playwright(result)
                         if not scraped_content:
                             print(f"Skipping empty scrape for: {result}")
                             return None
@@ -217,7 +217,7 @@ class FactChecker:
                 iterations = 0
                 seen_action_lines = set(action_lines)
                 action_needed_conclusion = None
-                while iterations <= 2:
+                while iterations <= 1:
                     with self._timers.track(f"action_needed_iter_{iterations+1}"):
                         # Use smaller trimmed record for faster processing
                         action_needed = evidence_synthesis.develop(record=self.get_trimmed_record(max_chars=3000), think=False)
@@ -296,12 +296,10 @@ class FactChecker:
                 if not verdict:
                     while judge_tries < max_judge_tries:
                         with self._timers.track(f"judge_try_{judge_tries+1}"):
-                            verdict = evaluation.judge(
-                                record=self.get_trimmed_record(max_chars=3000),
-                                decision_options="Supported|Refuted|Not Enough Evidence",
-                                rules=rules,
-                                think=False
-                            )
+                            record = self.get_trimmed_record(max_chars=3000)
+                            claim = evaluation.extract_claim_from_record(record)
+                            evidence_pieces = evaluation.extract_evidence_pieces(record)
+                            verdict = evaluation._llm_judge_with_evidence(claim, evidence_pieces, top_k=6)
                         print(f"Judged verdict (try {judge_tries+1}):\n{verdict}")
                         extracted_verdict = re.search(r'`(.*?)`', verdict, re.DOTALL)
                         pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else ''
