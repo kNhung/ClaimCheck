@@ -188,6 +188,9 @@ class FactChecker:
             with self._timers.track("factcheck_run"):
                 with self._timers.track("claim_filtering"):
                     self.claim = claim_detection.claim_filter(self.claim)
+                    if self.claim is None or not self.claim.strip():
+                        exception_msg = "Claim is empty after filtering."
+                        raise ValueError(exception_msg)
                     print(f"Filtered claim: {self.claim}")
 
                 with self._timers.track("planning"):
@@ -217,7 +220,7 @@ class FactChecker:
                 iterations = 0
                 seen_action_lines = set(action_lines)
                 action_needed_conclusion = None
-                while iterations <= 1:
+                while iterations <= -1:
                     with self._timers.track(f"action_needed_iter_{iterations+1}"):
                         # Use smaller trimmed record for faster processing
                         action_needed = evidence_synthesis.develop(record=self.get_trimmed_record(max_chars=3000), think=False)
@@ -371,6 +374,10 @@ class FactChecker:
 # For backward compatibility, provide a function interface
 
 def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=1, expected_label=None, model_name=None):
-    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
-    verdict, report_path = checker.run()
-    return verdict, report_path
+    try:
+        checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
+        verdict, report_path = checker.run()
+        return verdict, report_path
+    except ValueError as e:
+        print(f"Error in factcheck: {e}")
+        return "INVALID VERDICT", None
