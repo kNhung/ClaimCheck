@@ -1,4 +1,5 @@
 import os
+import tempfile
 from datetime import date
 
 import streamlit as st
@@ -60,6 +61,9 @@ if run_btn:
         st.error(f"Không thể import pipeline: {_import_error}")
         st.stop()
 
+    # Handle image upload
+    image_path = None
+    multimodal = False
     with st.status("Đang lập kế hoạch, thu thập bằng chứng và suy luận...", expanded=True) as status:
         try:
             status.write("Bắt đầu chạy pipeline...")
@@ -70,6 +74,13 @@ if run_btn:
             status.update(label="Lỗi khi chạy pipeline", state="error")
             st.exception(e)
             st.stop()
+        finally:
+            # Clean up temporary image file
+            if image_path and os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                except Exception:
+                    pass  # Ignore cleanup errors
 
     report_dir = os.path.dirname(report_path)
     report_md_path = os.path.join(report_dir, "report.md")

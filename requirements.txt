@@ -50,6 +50,7 @@ google-api-core==2.24.0
 google-api-python-client==2.156.0
 google-auth==2.37.0
 google-auth-httplib2==0.2.0
+google-generativeai==0.8.3
 googleapis-common-protos==1.66.0
 greenlet==3.1.1
 h11==0.14.0
@@ -119,6 +120,7 @@ nvidia-nvjitlink-cu12==12.4.127
 nvidia-nvtx-cu12==12.4.127
 ollama==0.4.4
 openai==1.58.1
+groq==0.11.0
 opencv-python==4.12.0.88
 orjson==3.10.12
 packaging==24.2

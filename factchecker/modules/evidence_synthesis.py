@@ -6,6 +6,11 @@ Kiểm tra các khía cạnh của Claim đã được nhắc đến trong các 
 - Nếu chưa đủ bằng chứng để chứng minh Claim, in ra từ khóa tìm kiếm web cụ thể để thu thập thêm bằng chứng. In ra từ khóa tìm kiếm dưới dạng: TÌM KIẾM: <từ khóa tìm kiếm>. Lưu ý không in từ khóa tìm kiếm đã được nhắc đến trong web_search("..")
 - Nếu đã có đủ bằng chứng để chứng minh Claim, in ra duy nhất "NONE".
 
+QUAN TRỌNG:
+- KHÔNG được tạo ra một "Claim:" mới trong phần Action Needed.
+- CHỈ in ra từ khóa tìm kiếm hoặc "NONE", không in ra bất kỳ thông tin nào khác.
+- KHÔNG được viết lại hoặc tóm tắt Claim.
+
 BẢN GHI:
 {record}
 
