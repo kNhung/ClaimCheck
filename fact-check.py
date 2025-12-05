@@ -1,6 +1,6 @@
 from factchecker.factchecker import factcheck
 from factchecker.report import report_writer
-from factchecker.modules import retriver_rav
+from factchecker.preprocessing.preprocessing import preprocess
 import sys
 import json
 import pandas as pd
@@ -59,7 +59,12 @@ if __name__ == "__main__":
     
     # Set default model name if not provided
     if not model_name:
-        model_name = os.getenv("FACTCHECK_MODEL_NAME", "qwen3:4b")
+        # Unified primary env var: FACTCHECKER_MODEL_NAME (with backward-compatible fallback)
+        model_name = (
+            os.getenv("FACTCHECKER_MODEL_NAME")
+            or os.getenv("FACTCHECK_MODEL_NAME")
+            or "qwen3:4b"
+        )
     
     # Set random seed if shuffle is enabled
     if shuffle:
@@ -109,18 +114,22 @@ if __name__ == "__main__":
 
     # Chạy fact-check cho từng claim
     for i, record in enumerate(data):
-        claim = record["claim"]
+        raw_claim = record["claim"]
         date = record.get("date", now_vn.strftime("%d-%m-%Y"))
         claim_id = str(record.get("id", i + 1))  # Get id from input or use index+1
         expected_label = record.get("labels", None)  # Changed from "labels" to "label"
         
-        print(f"\n=== [{i+1}/{actual_num_records}] Fact-checking: {claim}")
+        clean_claim = preprocess(raw_claim)
+
+        print(f"\n=== [{i+1}/{num_records}] Fact-checking:")
+        print(f"RAW:   {raw_claim}")
+        print(f"CLEAN: {clean_claim}")
         print(f"Expected label: {expected_label}")
         
         # Lưu kết quả vào reports/<ddmmyy-hhmm>/<id>/
         identifier = f"{run_identifier}/{claim_id}"
         verdict, report_path = factcheck(
-            claim, 
+            clean_claim, 
             date, 
             identifier=identifier,
             expected_label=expected_label,
@@ -128,15 +137,16 @@ if __name__ == "__main__":
         )
         
         # Get content from report for CSV
-        evidence, action_needed, verdict_text, justification = report_writer.get_report_content()
+        evidence, reasoning, verdict_text, justification = report_writer.get_report_content()
         
         # Write to CSV with claim_id
         csv_path = os.path.join(os.getcwd(), 'reports', run_identifier, 'detailed_results.csv')
         report_writer.write_detailed_csv(
-            claim=claim,
+            claim=raw_claim,   
+            clean_claim=clean_claim,
             date=date,
             evidence=evidence,
-            action_needed=action_needed,
+            reasoning=reasoning,
             verdict=verdict,
             justification=justification,
             report_path=report_path,

@@ -5,6 +5,7 @@ and graph-based evidence aggregation approaches like GEAR.
 """
 
 import re
+import json
 import numpy as np
 import networkx as nx
 from functools import lru_cache
@@ -12,6 +13,9 @@ from typing import List, Tuple, Dict
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import os
 import torch
+from . import llm
+import dotenv
+dotenv.load_dotenv()
 
 # Use same models as retriver_rav for consistency
 _EMBED_DEVICE = os.getenv("FACTCHECKER_EMBED_DEVICE")
@@ -925,6 +929,7 @@ def aggregate_evidence_with_graph(G: nx.Graph, claim: str, evidence_pieces: List
         claim_emb = embeddings[0]
         evidence_embs = embeddings[1:]
     
+    # STEP 1: Message passing (ERNet-like, GEAR style)
     refined_claim_emb, refined_evidence_embs = evidence_action_needed_network(
         G, claim_emb, evidence_embs, num_layers=2, use_attention=use_attention
     )
@@ -1307,10 +1312,9 @@ def judge(record, decision_options, rules="", think=True,
         aggregator_type=aggregator_type
     )
     
-    # Classify verdict (use neural classifier if embeddings available)
-    # Note: use_neural_classifier parameter here refers to final classification layer
-    # (different from use_neural_classifier for support/refute scores)
-    use_neural_final_classifier = True  # Use neural classification by default (GEAR style)
+    # Classify verdict (dùng rule-based mặc định để tránh MLP ngẫu nhiên chưa được huấn luyện).
+    # Nếu sau này có huấn luyện classifier riêng thì có thể bật lại.
+    use_neural_final_classifier = False
     verdict, justification = classify_verdict(
         aggregated_scores,
         use_neural_classifier=use_neural_final_classifier
@@ -1348,3 +1352,257 @@ def extract_verdict(conclusion, decision_options, rules=""):
     
     # Default
     return '`Not Enough Evidence`'
+
+
+def _normalize_llm_verdict(raw: str) -> str:
+    """
+    Chuẩn hóa verdict từ LLM về 3 lớp chuẩn.
+    """
+    if not raw:
+        return "Not Enough Evidence"
+    s = str(raw).strip().lower()
+    if "support" in s or "đúng" in s or "có căn cứ" in s or "được hỗ trợ" in s:
+        return "Supported"
+    if "refut" in s or "sai" in s or "bác bỏ" in s or "trái sự thật" in s:
+        return "Refuted"
+    if "not enough" in s or "không đủ" in s or "chưa đủ" in s or "không có đủ" in s:
+        return "Not Enough Evidence"
+    # Fallback: nếu không khớp rõ, coi là Not Enough Evidence để an toàn
+    return "Not Enough Evidence"
+
+
+def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str], 
+                                  relevance_threshold: float = 0.3) -> Tuple[List[str], List[float]]:
+    """
+    Lọc evidence dựa trên relevance score với claim.
+    Chỉ giữ lại evidence có relevance score > threshold.
+    
+    Args:
+        claim: Claim cần fact-check
+        evidence_pieces: Danh sách evidence pieces
+        relevance_threshold: Ngưỡng relevance tối thiểu (default: 0.3)
+    
+    Returns:
+        Tuple[List[str], List[float]]: (filtered_evidence, relevance_scores) - chỉ giữ evidence liên quan
+    """
+    if not evidence_pieces:
+        return [], []
+    
+    try:
+        # Tính relevance scores bằng CrossEncoder
+        scores = compute_evidence_scores(claim, evidence_pieces)
+        
+        # Normalize scores về [0, 1] nếu cần
+        if scores.size > 0:
+            # CrossEncoder scores có thể âm hoặc dương
+            # Strategy: normalize về [0, 1] nhưng giữ nguyên ranking
+            min_score = scores.min()
+            max_score = scores.max()
+            if max_score > min_score:
+                scores_normalized = (scores - min_score) / (max_score - min_score)
+            else:
+                # Tất cả scores bằng nhau, set về 0.5
+                scores_normalized = np.full(len(scores), 0.5)
+        else:
+            scores_normalized = np.zeros(len(evidence_pieces))
+        
+        # Lọc evidence có relevance > threshold
+        # NHƯNG: luôn giữ lại ít nhất top 1 evidence nếu có
+        filtered_evidence = []
+        filtered_scores = []
+        
+        # Tìm top evidence indices và điều chỉnh threshold
+        adjusted_threshold = relevance_threshold
+        top_indices = []
+        
+        if len(scores_normalized) > 0:
+            top_indices = list(np.argsort(-scores_normalized))  # Descending order
+            if len(top_indices) > 0:
+                top_score = scores_normalized[top_indices[0]]
+                # Nếu top score > 0.5 nhưng dưới threshold, giảm threshold một chút
+                if top_score > 0.5 and top_score < relevance_threshold:
+                    adjusted_threshold = min(relevance_threshold, top_score * 0.8)
+        
+        for i, (ev, score) in enumerate(zip(evidence_pieces, scores_normalized)):
+            # Giữ lại nếu: (1) trên threshold, HOẶC (2) là top evidence và score > 0.3
+            is_top = (i in top_indices[:1]) if len(top_indices) > 0 else False
+            if score >= adjusted_threshold or (is_top and score > 0.3):
+                filtered_evidence.append(ev)
+                filtered_scores.append(float(score))
+        
+        return filtered_evidence, filtered_scores
+    except Exception as e:
+        print(f"Error filtering evidence by relevance: {e}")
+        # Nếu lỗi, trả về toàn bộ evidence (không filter)
+        return evidence_pieces, [0.5] * len(evidence_pieces)
+
+
+def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int = 5) -> str:
+    """
+    Dùng LLM (Ollama) để ra phán quyết dựa trên claim + các bằng chứng web.
+    Giảm tối đa rule-based; LLM chịu trách nhiệm phân loại NLI.
+    
+    BƯỚC 1: Lọc evidence không liên quan trước khi judge.
+    BƯỚC 2: Chọn top_k evidence liên quan nhất.
+    BƯỚC 3: LLM judge với prompt yêu cầu kiểm tra relevance.
+    """
+    # BƯỚC 1: Lọc evidence không liên quan (relevance threshold = 0.15, giảm để giữ nhiều evidence hơn)
+    filtered_evidence, relevance_scores = filter_evidence_by_relevance(
+        claim, evidence_pieces, relevance_threshold=0.15
+    )
+    
+    # Nếu không có evidence nào liên quan, trả về Not Enough Evidence ngay
+    if not filtered_evidence:
+        justification = (
+            f"Không tìm thấy bằng chứng nào liên quan đến claim. "
+            f"Đã kiểm tra {len(evidence_pieces)} bằng chứng nhưng tất cả đều có độ liên quan thấp."
+        )
+        return f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
+    
+    # BƯỚC 2: Chọn top_k evidence liên quan nhất từ filtered_evidence
+    try:
+        # Tính lại scores cho filtered evidence để rank chính xác
+        scores = compute_evidence_scores(claim, filtered_evidence)
+        if scores.size == 0:
+            ranked_indices = list(range(len(filtered_evidence)))
+        else:
+            ranked_indices = list(np.argsort(-scores))
+    except Exception:
+        ranked_indices = list(range(len(filtered_evidence)))
+
+    top_k = min(top_k, len(ranked_indices))
+    selected_idx = ranked_indices[:top_k]
+    selected_evidence = [filtered_evidence[i] for i in selected_idx]
+    selected_scores = [relevance_scores[i] for i in selected_idx]
+
+    # Xây prompt cho LLM (tiếng Việt, output JSON)
+    evidence_block_lines = []
+    for i, ev in enumerate(selected_evidence):
+        evidence_block_lines.append(f"- [E{i}] {ev}")
+    evidence_block = "\n".join(evidence_block_lines)
+
+    prompt = f"""Phân loại YÊU CẦU dựa trên BẰNG CHỨNG thành 1 trong NHÃN. Trả về JSON.
+NHÃN:
+Supported
+- Dùng khi có bằng chứng E[i] rõ ràng, trực tiếp ỦNG HỘ yêu cầu.
+- Nếu yêu cầu có nhiều khía cạnh, TẤT CẢ các khía cạnh phải được ỦNG HỘ để chọn phán quyết này.
+
+Refuted
+- Dùng khi có bằng chứng E[i] rõ ràng BÁC BỎ hoặc MÂU THUẪN trực tiếp với yêu cầu.
+- Nếu yêu cầu có nhiều khía cạnh, dù chỉ 1 khía cạnh bị BÁC BỎ trong khi các khía cạnh còn lại được ủng hộ cũng đủ để chọn phán quyết này.
+
+Not Enough Evidence
+- Dùng khi tất cả E[i] KHÔNG ĐỦ thông tin để xác nhận hoặc bác bỏ yêu cầu.
+- Cũng dùng nếu yêu cầu quá MƠ HỒ hoặc không thể kiểm chứng bằng dữ liệu hiện có.
+- Nếu yêu cầu có nhiều khía cạnh, chỉ cần 1 khía cạnh không đủ bằng chứng để chọn phán quyết này.
+
+ĐỊNH DẠNG (bắt buộc JSON, không có text khác):
+{{
+  "verdict": "Supported|Refuted|Not Enough Evidence",
+  "justification": "Giải thích ngắn, nêu rõ dùng [Ei] nào và vì sao."
+}}
+
+YÊU CẦU:
+{claim}
+
+BẰNG CHỨNG:
+{evidence_block}
+
+JSON:
+"""
+
+    try:
+        raw = llm.prompt_ollama(prompt, think=False, use_judge_model=True)
+    except Exception as e:
+        # Nếu LLM lỗi, fallback an toàn
+        justification = f"Lỗi khi gọi LLM judge: {e}. Mặc định Not Enough Evidence."
+        return f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
+
+    # Cải thiện JSON parsing với nhiều strategies
+    if not raw or not raw.strip():
+        justification = "LLM judge không trả về kết quả. Mặc định Not Enough Evidence."
+        return f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
+    
+    # Strategy 1: Tìm JSON block trong markdown code block
+    import re
+    json_in_code_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
+    if json_in_code_block:
+        json_candidate = json_in_code_block.group(1).strip()
+        try:
+            obj = json.loads(json_candidate)
+            verdict_raw = obj.get("verdict", "")
+            justification = obj.get("justification", "").strip()
+            verdict = _normalize_llm_verdict(verdict_raw)
+            if justification:
+                return f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+        except Exception:
+            pass
+    
+    # Strategy 2: Tìm JSON object trong text (từ '{' đầu tiên đến '}' cuối cùng matching)
+    # Tìm tất cả các cặp {} và thử parse
+    brace_pattern = re.search(r'\{[^{}]*"verdict"[^{}]*\}', raw, re.DOTALL)
+    if brace_pattern:
+        json_candidate = brace_pattern.group(0)
+        try:
+            obj = json.loads(json_candidate)
+            verdict_raw = obj.get("verdict", "")
+            justification = obj.get("justification", "").strip()
+            verdict = _normalize_llm_verdict(verdict_raw)
+            if justification:
+                return f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+        except Exception:
+            pass
+    
+    # Strategy 3: Tìm từ '{' đầu tiên đến '}' cuối cùng (original method)
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        json_candidate = raw[start:end + 1]
+        try:
+            obj = json.loads(json_candidate)
+            verdict_raw = obj.get("verdict", "")
+            justification = obj.get("justification", "").strip()
+            verdict = _normalize_llm_verdict(verdict_raw)
+            if justification:
+                return f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+        except Exception as e:
+            pass
+    
+    # Strategy 4: Extract verdict từ text nếu không parse được JSON
+    # Tìm các từ khóa verdict trong text
+    raw_lower = raw.lower()
+    if '"supported"' in raw_lower or "supported" in raw_lower:
+        verdict = "Supported"
+    elif '"refuted"' in raw_lower or "refuted" in raw_lower:
+        verdict = "Refuted"
+    else:
+        verdict = "Not Enough Evidence"
+    
+    # Fallback: normalize từ raw text
+    verdict = _normalize_llm_verdict(raw)
+    justification = f"Không parse được JSON từ output LLM. Dựa trên nội dung: {raw[:200]}... Chọn nhãn {verdict}."
+    return f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+
+
+def judge(record, decision_options, rules="", think=True,
+          use_attention: bool = True, use_neural_classifier: bool = True,
+          use_claim_context: bool = True, aggregator_type: str = "attention"):
+    """
+    Phiên bản judge mới:
+    - Vẫn dùng retrieval từ web (evidence đã được thu thập ở bước trước).
+    - Bỏ phần rule-based phức tạp cho verdict cuối cùng.
+    - Dùng LLM (Ollama) để phân loại dựa trên claim + các evidence quan trọng nhất.
+    """
+    # Extract claim and evidence từ record (report.md)
+    claim = extract_claim_from_record(record)
+    evidence_pieces = extract_evidence_pieces(record)
+
+    if not claim:
+        return "### Justification:\nKhông thể xác định yêu cầu từ bản ghi.\n\n### Verdict:\n`Not Enough Evidence`"
+
+    if not evidence_pieces:
+        return "### Justification:\nKhông tìm thấy bằng chứng nào trong bản ghi.\n\n### Verdict:\n`Not Enough Evidence`"
+
+    # Gọi LLM để judge dựa trên claim + evidence (đã chọn top bằng CrossEncoder)
+    # Tăng top_k lên 5-6 để LLM có nhiều context hơn khi đánh giá
+    return _llm_judge_with_evidence(claim, evidence_pieces, top_k=6)
