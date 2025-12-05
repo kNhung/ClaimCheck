@@ -25,7 +25,19 @@ class FactCheckService:
     """Service for handling fact-checking operations."""
     
     def __init__(self):
-        self.reports_dir = settings.REPORTS_DIR
+        # Get absolute path to reports directory (same as ReportService)
+        from pathlib import Path
+        service_dir = Path(__file__).parent  # demo/app/services
+        app_dir = service_dir.parent  # demo/app
+        demo_dir = app_dir.parent  # demo
+        project_root = demo_dir.parent  # project root
+        
+        reports_dir_str = settings.REPORTS_DIR
+        if Path(reports_dir_str).is_absolute():
+            self.reports_dir = Path(reports_dir_str)
+        else:
+            # Relative path from project root
+            self.reports_dir = project_root / reports_dir_str
     
     async def verify_claim(
         self,
@@ -94,6 +106,32 @@ class FactCheckService:
                 import traceback
                 logger.error(f"factcheck traceback:\n{traceback.format_exc()}")
                 raise
+            
+            # Validate and normalize verdict
+            valid_verdicts = ["Supported", "Refuted", "Not Enough Evidence"]
+            
+            # Normalize verdict (case-insensitive, handle variations)
+            verdict_lower = str(verdict).lower().strip()
+            if verdict_lower in ["supported", "support"]:
+                verdict = "Supported"
+            elif verdict_lower in ["refuted", "refute", "refut"]:
+                verdict = "Refuted"
+            elif verdict_lower in ["not enough evidence", "not enough", "không đủ", "insufficient"]:
+                verdict = "Not Enough Evidence"
+            elif verdict not in valid_verdicts:
+                logger.warning(f"Invalid verdict received: '{verdict}'. Normalizing to 'Not Enough Evidence'")
+                verdict = "Not Enough Evidence"
+            
+            # Handle None report_path
+            if report_path is None:
+                logger.warning(f"report_path is None. Generating default path.")
+                # Generate default report path based on identifier
+                from pathlib import Path
+                report_dir = Path(self.reports_dir) / str(identifier)
+                # Create directory if it doesn't exist
+                report_dir.mkdir(parents=True, exist_ok=True)
+                report_path = str(report_dir / "report.md")
+                logger.info(f"Generated default report path: {report_path}")
             
             # Extract report_id from report_path
             # report_path format: reports/{identifier}/report.md

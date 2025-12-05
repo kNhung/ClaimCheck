@@ -9,6 +9,7 @@ import json
 import numpy as np
 import networkx as nx
 from functools import lru_cache
+from threading import Lock
 from typing import List, Tuple, Dict
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import os
@@ -23,27 +24,57 @@ _BI_MODEL_NAME = os.getenv("FACTCHECKER_BI_ENCODER", "paraphrase-multilingual-Mi
 _CROSS_MODEL_NAME = os.getenv("FACTCHECKER_CROSS_ENCODER", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 _BERT_MODEL_NAME = os.getenv("FACTCHECKER_BERT_MODEL", "distilbert-base-multilingual-cased")
 
+# Global model cache with thread-safe initialization
+_bi_model_cache = None
+_cross_model_cache = None
+_model_lock = Lock()
 
-@lru_cache(maxsize=1)
+
 def _get_bi_model(model_name=_BI_MODEL_NAME):
-    """Get bi-encoder model for embeddings."""
-    kwargs = {}
-    if _EMBED_DEVICE:
-        kwargs["device"] = _EMBED_DEVICE
-    # Prevent meta device usage in underlying transformers model
-    kwargs["model_kwargs"] = {"device_map": None}
-    return SentenceTransformer(model_name, **kwargs)
+    """Get bi-encoder model with thread-safe caching."""
+    global _bi_model_cache
+    if _bi_model_cache is None:
+        with _model_lock:
+            # Double-check pattern to avoid race condition
+            if _bi_model_cache is None:
+                kwargs = {}
+                if _EMBED_DEVICE:
+                    kwargs["device"] = _EMBED_DEVICE
+                _bi_model_cache = SentenceTransformer(model_name, **kwargs)
+    return _bi_model_cache
 
 
-@lru_cache(maxsize=1)
 def _get_cross_model(model_name=_CROSS_MODEL_NAME):
-    """Get cross-encoder model for fine-grained scoring."""
-    kwargs = {}
-    if _EMBED_DEVICE:
-        kwargs["device"] = _EMBED_DEVICE
-    # Prevent meta device usage in underlying transformers model
-    kwargs["model_kwargs"] = {"device_map": None}
-    return CrossEncoder(model_name, **kwargs)
+    """Get cross-encoder model with thread-safe caching."""
+    global _cross_model_cache
+    if _cross_model_cache is None:
+        with _model_lock:
+            # Double-check pattern to avoid race condition
+            if _cross_model_cache is None:
+                kwargs = {}
+                if _EMBED_DEVICE:
+                    kwargs["device"] = _EMBED_DEVICE
+                _cross_model_cache = CrossEncoder(model_name, **kwargs)
+    return _cross_model_cache
+
+
+def preload_models():
+    """
+    Pre-load models to avoid loading them multiple times in multi-threaded scenarios.
+    This should be called once before starting parallel processing.
+    """
+    print("Pre-loading evaluation models to avoid multiple loads in threads...")
+    try:
+        _get_bi_model()
+        print("✓ Evaluation bi-encoder model pre-loaded")
+    except Exception as e:
+        print(f"Warning: Failed to pre-load bi-encoder model: {e}")
+    
+    try:
+        _get_cross_model()
+        print("✓ Evaluation cross-encoder model pre-loaded")
+    except Exception as e:
+        print(f"Warning: Failed to pre-load cross-encoder model: {e}")
 
 
 @lru_cache(maxsize=1)
@@ -206,15 +237,27 @@ def get_bert_embeddings(text_pairs: List[Tuple[str, str]], max_length: int = 512
 
 
 def extract_claim_from_record(record: str) -> str:
-    """Extract the claim from the record."""
-    # Look for "# Claim: ..." pattern
-    match = re.search(r'#\s*Claim:\s*(.+?)(?:\n|$)', record, re.IGNORECASE)
+    """
+    Extract the claim from the record.
+    Only matches claim at the beginning of the record (first 100 lines) to avoid
+    matching with "Claim:" that might appear in Action Needed or other sections.
+    """
+    # Only search in the first 100 lines to avoid matching with "Claim:" in Action Needed
+    lines = record.strip().split('\n')
+    first_part = '\n'.join(lines[:100])
+    
+    # Look for "# Claim: ..." pattern in the first part only
+    match = re.search(r'^#\s*Claim:\s*(.+?)(?:\n##|\n###|$)', first_part, re.IGNORECASE | re.MULTILINE | re.DOTALL)
     if match:
         return match.group(1).strip()
+    
     # Fallback: first line if no pattern found
-    lines = record.strip().split('\n')
     if lines:
-        return lines[0].replace('#', '').replace('Claim:', '').strip()
+        first_line = lines[0].strip()
+        # Remove markdown formatting
+        first_line = first_line.replace('#', '').replace('Claim:', '').strip()
+        if first_line:
+            return first_line
     return ""
 
 
@@ -232,18 +275,26 @@ def extract_evidence_pieces(record: str) -> List[str]:
     evidence_pieces.extend([m.strip() for m in matches2 if m.strip()])
     
     # Pattern 3: Look for evidence section với cả 2 formats
+    # CHỈ lấy actual evidence summaries, BỎ QUA log text và metadata
     evidence_section_match = re.search(r'###\s*Evidence\s*\n\n(.+?)(?=\n###|$)', record, re.DOTALL | re.IGNORECASE)
     if evidence_section_match:
         evidence_text = evidence_section_match.group(1)
         lines = [line.strip() for line in evidence_text.split('\n') if line.strip()]
         for line in lines:
+            # Bỏ qua log text và metadata
+            if any(skip in line for skip in ['📋', '🔍', '✅', '→', '•', 'BƯỚC', 'WEB SEARCH', 'WEB SCRAPING', 'RAV', 'Chunk #', 'score:', 'Content preview:', 'Snippets preview:', 'URLs:', 'Query:', 'Domain:', 'Content length:', 'Reason:', 'Failed:', 'Output:', 'Input:']):
+                continue
             # Xử lý cả Summary: và summary:
             if 'summary:' in line.lower() or 'Summary:' in line:
                 parts = re.split(r'summary:\s*', line, 1, flags=re.IGNORECASE)
                 if len(parts) > 1:
-                    evidence_pieces.append(parts[1].strip())
+                    summary_text = parts[1].strip()
+                    # Chỉ thêm nếu không phải là log text
+                    if not any(skip in summary_text for skip in ['📋', '🔍', '✅', '→', '•', 'BƯỚC']):
+                        evidence_pieces.append(summary_text)
             elif not re.match(r'web_search\([^)]+\)', line, re.IGNORECASE):
-                if len(line) > 20:
+                # Chỉ thêm nếu là actual evidence content (không phải log)
+                if len(line) > 20 and not any(skip in line for skip in ['📋', '🔍', '✅', '→', '•', 'BƯỚC']):
                     evidence_pieces.append(line)
     
     # Remove duplicates
@@ -1381,25 +1432,40 @@ def _normalize_llm_verdict(raw: str) -> str:
 
 
 def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str], 
-                                  relevance_threshold: float = 0.3) -> Tuple[List[str], List[float]]:
+                                  relevance_threshold: float = 0.3,
+                                  min_keep: int = 3,
+                                  log_callback=None) -> Tuple[List[str], List[float]]:
     """
     Lọc evidence dựa trên relevance score với claim.
     Chỉ giữ lại evidence có relevance score > threshold.
+    NHƯNG luôn đảm bảo giữ lại ít nhất min_keep evidence (top evidence).
     
     Args:
         claim: Claim cần fact-check
         evidence_pieces: Danh sách evidence pieces
         relevance_threshold: Ngưỡng relevance tối thiểu (default: 0.3)
+        min_keep: Số lượng evidence tối thiểu cần giữ lại (default: 3)
+        log_callback: Hàm callback để log các bước (optional)
     
     Returns:
         Tuple[List[str], List[float]]: (filtered_evidence, relevance_scores) - chỉ giữ evidence liên quan
     """
     if not evidence_pieces:
+        if log_callback:
+            log_callback("⚠️ Không có evidence pieces để filter!")
         return [], []
+    
+    if log_callback:
+        log_callback(f"\n🔍 BƯỚC 1: Tính relevance scores cho {len(evidence_pieces)} evidence pieces")
+        log_callback(f"   → Sử dụng CrossEncoder model")
+        log_callback(f"   → Claim: {claim}")  # Ghi đầy đủ claim, không truncate
     
     try:
         # Tính relevance scores bằng CrossEncoder
         scores = compute_evidence_scores(claim, evidence_pieces)
+        
+        if log_callback:
+            log_callback(f"   → Raw scores range: [{scores.min():.4f}, {scores.max():.4f}]")
         
         # Normalize scores về [0, 1] nếu cần
         if scores.size > 0:
@@ -1414,6 +1480,14 @@ def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str],
                 scores_normalized = np.full(len(scores), 0.5)
         else:
             scores_normalized = np.zeros(len(evidence_pieces))
+        
+        if log_callback:
+            log_callback(f"   → Normalized scores range: [{scores_normalized.min():.4f}, {scores_normalized.max():.4f}]")
+            log_callback(f"   → Top 5 evidence scores:")
+            top_5_indices = np.argsort(-scores_normalized)[:5]
+            for idx, ev_idx in enumerate(top_5_indices):
+                # Ghi đầy đủ evidence, không truncate
+                log_callback(f"      [{idx+1}] Score: {scores_normalized[ev_idx]:.4f} - {evidence_pieces[ev_idx]}")
         
         # Lọc evidence có relevance > threshold
         # NHƯNG: luôn giữ lại ít nhất top 1 evidence nếu có
@@ -1431,22 +1505,83 @@ def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str],
                 # Nếu top score > 0.5 nhưng dưới threshold, giảm threshold một chút
                 if top_score > 0.5 and top_score < relevance_threshold:
                     adjusted_threshold = min(relevance_threshold, top_score * 0.8)
+                    if log_callback:
+                        log_callback(f"\n🔍 BƯỚC 2: Điều chỉnh threshold")
+                        log_callback(f"   → Threshold ban đầu: {relevance_threshold}")
+                        log_callback(f"   → Top score: {top_score:.4f}")
+                        log_callback(f"   → Threshold sau điều chỉnh: {adjusted_threshold:.4f}")
         
+        if log_callback:
+            log_callback(f"\n🔍 BƯỚC 3: Lọc evidence theo threshold ({adjusted_threshold:.4f})")
+        
+        # Bước 1: Lọc evidence theo threshold
+        filtered_indices = set()  # Track indices đã được thêm vào filtered_evidence
         for i, (ev, score) in enumerate(zip(evidence_pieces, scores_normalized)):
-            # Giữ lại nếu: (1) trên threshold, HOẶC (2) là top evidence và score > 0.3
-            is_top = (i in top_indices[:1]) if len(top_indices) > 0 else False
-            if score >= adjusted_threshold or (is_top and score > 0.3):
+            if score >= adjusted_threshold:
                 filtered_evidence.append(ev)
                 filtered_scores.append(float(score))
+                filtered_indices.add(i)
+        
+        if log_callback:
+            log_callback(f"   → Số evidence sau khi lọc: {len(filtered_evidence)}/{len(evidence_pieces)}")
+            if len(filtered_evidence) > 0:
+                log_callback(f"   → Evidence được giữ lại:")
+                for idx, (ev, score) in enumerate(zip(filtered_evidence, filtered_scores)):
+                    # Ghi đầy đủ evidence, không truncate
+                    log_callback(f"      [{idx+1}] Score: {score:.4f} - {ev}")
+        
+        # Bước 2: Nếu số lượng evidence sau khi lọc < min_keep, bổ sung top evidence
+        # Đảm bảo luôn có ít nhất min_keep evidence (hoặc tất cả nếu ít hơn min_keep)
+        if len(filtered_evidence) < min_keep and len(top_indices) > 0:
+            if log_callback:
+                log_callback(f"\n🔍 BƯỚC 4: Bổ sung evidence để đạt min_keep={min_keep}")
+                log_callback(f"   → Hiện tại có {len(filtered_evidence)} evidence, cần thêm {min_keep - len(filtered_evidence)}")
+            
+            # Thêm top evidence chưa có trong filtered_evidence
+            added_count = 0
+            for idx in top_indices:
+                if len(filtered_evidence) >= min_keep:
+                    break
+                if idx not in filtered_indices:
+                    # Chỉ thêm nếu score > 0.2 (ngưỡng tối thiểu)
+                    if scores_normalized[idx] > 0.2:
+                        filtered_evidence.append(evidence_pieces[idx])
+                        filtered_scores.append(float(scores_normalized[idx]))
+                        filtered_indices.add(idx)
+                        added_count += 1
+                        if log_callback:
+                            # Ghi đầy đủ evidence, không truncate
+                            log_callback(f"      [+] Thêm evidence #{idx} (score: {scores_normalized[idx]:.4f}) - {evidence_pieces[idx]}")
+            
+            if log_callback:
+                log_callback(f"   → Đã thêm {added_count} evidence")
+        
+        # Bước 3: Sắp xếp lại theo score (descending) để đảm bảo top evidence ở đầu
+        if filtered_evidence and len(filtered_evidence) > 1:
+            if log_callback:
+                log_callback(f"\n🔍 BƯỚC 5: Sắp xếp lại evidence theo score (descending)")
+            
+            # Tạo list of tuples (score, evidence) để sort
+            evidence_score_pairs = list(zip(filtered_scores, filtered_evidence))
+            evidence_score_pairs.sort(reverse=True, key=lambda x: x[0])
+            filtered_evidence = [ev for _, ev in evidence_score_pairs]
+            filtered_scores = [score for score, _ in evidence_score_pairs]
+        
+        if log_callback:
+            log_callback(f"\n✅ KẾT QUẢ: Đã chọn {len(filtered_evidence)} evidence từ {len(evidence_pieces)} evidence ban đầu")
+            if len(filtered_evidence) > 0:
+                log_callback(f"   → Score range: [{min(filtered_scores):.4f}, {max(filtered_scores):.4f}]")
         
         return filtered_evidence, filtered_scores
     except Exception as e:
+        if log_callback:
+            log_callback(f"❌ LỖI khi filter evidence: {e}")
         print(f"Error filtering evidence by relevance: {e}")
         # Nếu lỗi, trả về toàn bộ evidence (không filter)
         return evidence_pieces, [0.5] * len(evidence_pieces)
 
 
-def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int = 5) -> str:
+def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int = 5, log_callback=None) -> tuple:
     """
     Dùng LLM (Ollama) để ra phán quyết dựa trên claim + các bằng chứng web.
     Giảm tối đa rule-based; LLM chịu trách nhiệm phân loại NLI.
@@ -1454,10 +1589,30 @@ def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int 
     BƯỚC 1: Lọc evidence không liên quan trước khi judge.
     BƯỚC 2: Chọn top_k evidence liên quan nhất.
     BƯỚC 3: LLM judge với prompt yêu cầu kiểm tra relevance.
+    
+    Args:
+        claim: Claim cần fact-check
+        evidence_pieces: Danh sách evidence pieces
+        top_k: Số lượng evidence tối đa để đưa vào judge
+        log_callback: Hàm callback để log các bước (optional)
+    
+    Returns:
+        tuple: (verdict_string, evidence_info_dict)
+        - verdict_string: String chứa verdict và justification
+        - evidence_info_dict: Dict chứa thông tin về evidence (selected_evidence, selected_scores, stats)
     """
+    if log_callback:
+        log_callback(f"\n{'='*80}")
+        log_callback(f"🔍 QUÁ TRÌNH LỌC VÀ CHỌN EVIDENCE CHO JUDGE")
+        log_callback(f"{'='*80}")
+        log_callback(f"Claim: {claim}")
+        log_callback(f"Tổng số evidence ban đầu: {len(evidence_pieces)}")
+        log_callback(f"Top_k: {top_k}")
+    
     # BƯỚC 1: Lọc evidence không liên quan (relevance threshold = 0.15, giảm để giữ nhiều evidence hơn)
+    # Đảm bảo giữ lại ít nhất top_k evidence (hoặc tất cả nếu ít hơn top_k)
     filtered_evidence, relevance_scores = filter_evidence_by_relevance(
-        claim, evidence_pieces, relevance_threshold=0.15
+        claim, evidence_pieces, relevance_threshold=0.15, min_keep=top_k, log_callback=log_callback
     )
     
     # Nếu không có evidence nào liên quan, trả về Not Enough Evidence ngay
@@ -1466,9 +1621,22 @@ def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int 
             f"Không tìm thấy bằng chứng nào liên quan đến claim. "
             f"Đã kiểm tra {len(evidence_pieces)} bằng chứng nhưng tất cả đều có độ liên quan thấp."
         )
-        return f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
+        verdict_string = f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
+        evidence_info = {
+            "claim": claim,
+            "total_evidence": len(evidence_pieces),
+            "filtered_evidence_count": 0,
+            "selected_evidence_count": 0,
+            "top_k": top_k,
+            "selected_evidence": [],
+            "selected_scores": []
+        }
+        return verdict_string, evidence_info
     
     # BƯỚC 2: Chọn top_k evidence liên quan nhất từ filtered_evidence
+    if log_callback:
+        log_callback(f"\n🔍 BƯỚC 6: Chọn top_{top_k} evidence từ {len(filtered_evidence)} evidence đã lọc")
+    
     try:
         # Tính lại scores cho filtered evidence để rank chính xác
         scores = compute_evidence_scores(claim, filtered_evidence)
@@ -1483,6 +1651,38 @@ def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int 
     selected_idx = ranked_indices[:top_k]
     selected_evidence = [filtered_evidence[i] for i in selected_idx]
     selected_scores = [relevance_scores[i] for i in selected_idx]
+    
+    if log_callback:
+        log_callback(f"   → Đã chọn {len(selected_evidence)} evidence:")
+        for i, (ev, score) in enumerate(zip(selected_evidence, selected_scores)):
+            # Ghi đầy đủ evidence, không truncate
+            log_callback(f"      [E{i}] Score: {score:.4f} - {ev}")
+
+    # Tạo evidence_info dict để trả về
+    evidence_info = {
+        "claim": claim,
+        "total_evidence": len(evidence_pieces),
+        "filtered_evidence_count": len(filtered_evidence),
+        "selected_evidence_count": len(selected_evidence),
+        "top_k": top_k,
+        "selected_evidence": selected_evidence,
+        "selected_scores": selected_scores
+    }
+    
+    # In ra danh sách bằng chứng trước khi đưa vào judge
+    print("\n" + "=" * 80)
+    print("📋 DANH SÁCH BẰNG CHỨNG ĐƯỢC CHỌN CHO JUDGE:")
+    print("=" * 80)
+    print(f"Claim: {claim}")
+    print(f"\nTổng số bằng chứng ban đầu: {len(evidence_pieces)}")
+    print(f"Số bằng chứng sau khi lọc (relevance > 0.15): {len(filtered_evidence)}")
+    print(f"Số bằng chứng được chọn (top_k={top_k}): {len(selected_evidence)}")
+    print("\n" + "-" * 80)
+    for i, (ev, score) in enumerate(zip(selected_evidence, selected_scores)):
+        print(f"\n[E{i}] (Relevance score: {score:.4f})")
+        ev_preview = ev
+        print(f"{ev_preview}")
+    print("\n" + "=" * 80 + "\n")
 
     # Xây prompt cho LLM (tiếng Việt, output JSON)
     evidence_block_lines = []
@@ -1508,7 +1708,7 @@ Not Enough Evidence
 ĐỊNH DẠNG (bắt buộc JSON, không có text khác):
 {{
   "verdict": "Supported|Refuted|Not Enough Evidence",
-  "justification": "Giải thích ngắn, nêu rõ dùng [Ei] nào và vì sao."
+  "justification": "Giải thích ngắn gọn (1-2 câu), nêu rõ [Ei] nào được dùng và lý do chọn nhãn này."
 }}
 
 YÊU CẦU:
@@ -1521,16 +1721,27 @@ JSON:
 """
 
     try:
-        raw = llm.prompt_ollama(prompt, think=False, use_judge_model=True)
+        # Kiểm tra judge provider từ env var
+        judge_provider = os.getenv("FACTCHECKER_JUDGE_PROVIDER", "ollama").lower()
+        
+        if judge_provider == "gemini":
+            # Dùng Gemini API
+            gemini_model = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+            raw = llm.prompt_gemini(prompt, model=gemini_model)
+        else:
+            # Mặc định dùng Ollama
+            raw = llm.prompt_ollama(prompt, think=False, use_judge_model=True)
     except Exception as e:
         # Nếu LLM lỗi, fallback an toàn
         justification = f"Lỗi khi gọi LLM judge: {e}. Mặc định Not Enough Evidence."
-        return f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
+        verdict_string = f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
+        return verdict_string, evidence_info
 
     # Cải thiện JSON parsing với nhiều strategies
     if not raw or not raw.strip():
         justification = "LLM judge không trả về kết quả. Mặc định Not Enough Evidence."
-        return f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
+        verdict_string = f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
+        return verdict_string, evidence_info
     
     # Strategy 1: Tìm JSON block trong markdown code block
     import re
@@ -1543,7 +1754,8 @@ JSON:
             justification = obj.get("justification", "").strip()
             verdict = _normalize_llm_verdict(verdict_raw)
             if justification:
-                return f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+                verdict_string = f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+                return verdict_string, evidence_info
         except Exception:
             pass
     
@@ -1558,7 +1770,8 @@ JSON:
             justification = obj.get("justification", "").strip()
             verdict = _normalize_llm_verdict(verdict_raw)
             if justification:
-                return f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+                verdict_string = f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+                return verdict_string, evidence_info
         except Exception:
             pass
     
@@ -1573,7 +1786,8 @@ JSON:
             justification = obj.get("justification", "").strip()
             verdict = _normalize_llm_verdict(verdict_raw)
             if justification:
-                return f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+                verdict_string = f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+                return verdict_string, evidence_info
         except Exception as e:
             pass
     
@@ -1590,7 +1804,8 @@ JSON:
     # Fallback: normalize từ raw text
     verdict = _normalize_llm_verdict(raw)
     justification = f"Không parse được JSON từ output LLM. Dựa trên nội dung: {raw[:200]}... Chọn nhãn {verdict}."
-    return f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+    verdict_string = f"### Justification:\n{justification}\n\n### Verdict:\n`{verdict}`"
+    return verdict_string, evidence_info
 
 
 def judge(record, decision_options, rules="", think=True,
@@ -1607,11 +1822,43 @@ def judge(record, decision_options, rules="", think=True,
     evidence_pieces = extract_evidence_pieces(record)
 
     if not claim:
-        return "### Justification:\nKhông thể xác định yêu cầu từ bản ghi.\n\n### Verdict:\n`Not Enough Evidence`"
+        verdict_string = "### Justification:\nKhông thể xác định yêu cầu từ bản ghi.\n\n### Verdict:\n`Not Enough Evidence`"
+        evidence_info = {
+            "claim": "",
+            "total_evidence": 0,
+            "filtered_evidence_count": 0,
+            "selected_evidence_count": 0,
+            "top_k": 6,
+            "selected_evidence": [],
+            "selected_scores": []
+        }
+        return verdict_string, evidence_info
 
     if not evidence_pieces:
-        return "### Justification:\nKhông tìm thấy bằng chứng nào trong bản ghi.\n\n### Verdict:\n`Not Enough Evidence`"
+        verdict_string = "### Justification:\nKhông tìm thấy bằng chứng nào trong bản ghi.\n\n### Verdict:\n`Not Enough Evidence`"
+        evidence_info = {
+            "claim": claim,
+            "total_evidence": 0,
+            "filtered_evidence_count": 0,
+            "selected_evidence_count": 0,
+            "top_k": 6,
+            "selected_evidence": [],
+            "selected_scores": []
+        }
+        return verdict_string, evidence_info
 
     # Gọi LLM để judge dựa trên claim + evidence (đã chọn top bằng CrossEncoder)
-    # Tăng top_k lên 5-6 để LLM có nhiều context hơn khi đánh giá
-    return _llm_judge_with_evidence(claim, evidence_pieces, top_k=6)
+    # Tạo log callback để ghi lại quá trình filter và select evidence
+    filter_log_lines = []
+    def filter_log_callback(msg):
+        filter_log_lines.append(msg)
+        print(f"[EVIDENCE_FILTER] {msg}")
+    
+    # Dùng top_k=6 để có đủ bằng chứng để đánh giá, nhưng vẫn tập trung vào bằng chứng liên quan nhất
+    verdict_string, evidence_info = _llm_judge_with_evidence(claim, evidence_pieces, top_k=3, log_callback=filter_log_callback)
+    
+    # Ghi log vào evidence_info để có thể append vào report sau
+    if filter_log_lines:
+        evidence_info['filter_log'] = filter_log_lines
+    
+    return verdict_string, evidence_info

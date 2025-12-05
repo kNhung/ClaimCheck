@@ -23,7 +23,25 @@ def init_report(claim, identifier):
     os.makedirs(images_dir, exist_ok=True)
     report_md_path = os.path.join(base_dir, 'report.md')
     with open(report_md_path, 'w') as f:
-        f.write(f"# Claim: {claim}\n\n") 
+        f.write(f"# Claim: {claim}\n\n")
+        f.write("=" * 80 + "\n")
+        f.write("📊 PIPELINE OVERVIEW\n")
+        f.write("=" * 80 + "\n")
+        f.write("""
+Pipeline bao gồm các bước sau:
+
+1. **Claim Filtering**: Lọc và chuẩn hóa claim ban đầu
+2. **Planning**: Tạo các query tìm kiếm từ claim
+3. **Web Search**: Tìm kiếm trên web với các query đã tạo
+4. **Web Scraping**: Lấy nội dung từ các URL tìm được
+5. **RAV (Evidence Ranking)**: Xếp hạng và chọn evidence quan trọng nhất từ mỗi URL
+6. **Evidence Synthesis**: Phân tích evidence hiện có, quyết định có cần thêm evidence không
+7. **Evidence Filtering & Selection**: Lọc và chọn top evidence để đưa vào judge
+8. **Judge**: Đưa ra verdict cuối cùng (Supported/Refuted/Not Enough Evidence)
+
+Tất cả các bước đều được log chi tiết bên dưới để dễ dàng theo dõi và debug.
+""")
+        f.write("=" * 80 + "\n\n")
     evidence_md_path = os.path.join(base_dir, 'evidence.md')
     with open(evidence_md_path, 'w') as f:
         f.write("### Raw Evidence\n\n") 
@@ -58,6 +76,97 @@ def append_evidence(evidence):
     except Exception as e:
         print(f"Error appending evidence: {e}")
 
+def append_rav_log(log_lines):
+    """
+    Append RAV (Retrieval-Augmented Verification) process log to report.
+    
+    Args:
+        log_lines: List of log lines or single string
+    """
+    try:
+        with open(REPORT_PATH, "a") as f:
+            if isinstance(log_lines, str):
+                f.write(log_lines + "\n")
+            else:
+                for line in log_lines:
+                    f.write(line + "\n")
+    except Exception as e:
+        print(f"Error appending RAV log: {e}")
+
+def append_evidence_filter_log(log_lines):
+    """
+    Append evidence filtering process log to report.
+    
+    Args:
+        log_lines: List of log lines or single string
+    """
+    try:
+        with open(REPORT_PATH, "a") as f:
+            if isinstance(log_lines, str):
+                f.write(log_lines + "\n")
+            else:
+                for line in log_lines:
+                    f.write(line + "\n")
+    except Exception as e:
+        print(f"Error appending evidence filter log: {e}")
+
+def append_pipeline_log(section_name, log_lines):
+    """
+    Append pipeline process log to report with standardized format.
+    
+    Args:
+        section_name: Name of the pipeline section (e.g., "PLANNING", "WEB_SEARCH", "JUDGE")
+        log_lines: List of log lines or single string
+    """
+    try:
+        with open(REPORT_PATH, "a") as f:
+            f.write(f"\n{'='*80}\n")
+            f.write(f"📋 {section_name}\n")
+            f.write(f"{'='*80}\n")
+            if isinstance(log_lines, str):
+                f.write(log_lines + "\n")
+            else:
+                for line in log_lines:
+                    f.write(line + "\n")
+            f.write(f"{'='*80}\n\n")
+    except Exception as e:
+        print(f"Error appending pipeline log: {e}")
+
+def log_step(step_name, details, log_lines_list=None):
+    """
+    Log a single step in the pipeline.
+    
+    Args:
+        step_name: Name of the step
+        details: Details about the step (dict or string)
+        log_lines_list: Optional list to append log lines to
+    """
+    if log_lines_list is None:
+        log_lines_list = []
+    
+    if isinstance(details, dict):
+        log_line = f"  → {step_name}:"
+        for key, value in details.items():
+            if isinstance(value, (list, tuple)):
+                if len(value) == 0:
+                    value_str = "[]"
+                else:
+                    # Ghi đầy đủ tất cả items, không truncate
+                    value_str = str(value)
+            elif isinstance(value, bool):
+                value_str = "✓ Yes" if value else "✗ No"
+            else:
+                value_str = str(value)
+            # Không truncate - ghi đầy đủ thông tin
+            log_line += f"\n    • {key}: {value_str}"
+    else:
+        log_line = f"  → {step_name}: {details}"
+        # Không truncate - ghi đầy đủ thông tin
+    
+    log_lines_list.append(log_line)
+    print(f"[PIPELINE] {step_name}: {details}")
+    return log_lines_list
+
 def append_raw(evidence):
     try:
         with open(EVIDENCE_PATH, "a") as f:
@@ -72,6 +181,34 @@ def append_action_needed(action_needed):
             f.write(action_needed.strip() + "\n\n")
     except Exception as e:
         print(f"Error appending action_needed: {e}")
+
+def append_evidence_info(evidence_info):
+    """
+    Ghi thông tin về evidence được chọn cho judge vào report.md.
+    Format giống với log để đảm bảo thông tin nhất quán.
+    """
+    try:
+        with open(REPORT_PATH, "a") as f:
+            f.write("### Evidence Selected for Judge\n\n")
+            f.write("=" * 80 + "\n")
+            f.write("📋 DANH SÁCH BẰNG CHỨNG ĐƯỢC CHỌN CHO JUDGE:\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Claim: {evidence_info.get('claim', 'N/A')}\n")
+            f.write(f"\nTổng số bằng chứng ban đầu: {evidence_info.get('total_evidence', 0)}\n")
+            f.write(f"Số bằng chứng sau khi lọc (relevance > 0.15): {evidence_info.get('filtered_evidence_count', 0)}\n")
+            f.write(f"Số bằng chứng được chọn (top_k={evidence_info.get('top_k', 0)}): {evidence_info.get('selected_evidence_count', 0)}\n")
+            f.write("\n" + "-" * 80 + "\n")
+            
+            selected_evidence = evidence_info.get('selected_evidence', [])
+            selected_scores = evidence_info.get('selected_scores', [])
+            
+            for i, (ev, score) in enumerate(zip(selected_evidence, selected_scores)):
+                f.write(f"\n[E{i}] (Relevance score: {score:.4f})\n")
+                f.write(f"{ev}\n")
+            
+            f.write("\n" + "=" * 80 + "\n\n")
+    except Exception as e:
+        print(f"Error appending evidence info: {e}")
 
 def append_verdict(verdict):
     try:
@@ -89,7 +226,110 @@ def append_justification(justification):
     except Exception as e:
         print(f"Error appending justification: {e}")
 
-def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None, clean_claim=None):
+def append_timing_info(timings):
+    """
+    Append timing information to the report.md file.
+    
+    Args:
+        timings: List of dicts with 'label' and 'duration' keys
+    """
+    try:
+        if not timings:
+            return
+        
+        with open(REPORT_PATH, "a") as f:
+            f.write("\n" + "=" * 80 + "\n")
+            f.write("⏱️  THỐNG KÊ THỜI GIAN XỬ LÝ\n")
+            f.write("=" * 80 + "\n\n")
+            
+            # Tính tổng thời gian
+            total_duration = sum(t.get('duration', 0) for t in timings)
+            
+            # Nhóm timing theo loại
+            timing_groups = {}
+            for timing in timings:
+                label = timing.get('label', 'unknown')
+                duration = timing.get('duration', 0)
+                
+                # Phân loại timing
+                if label.startswith('web_search:'):
+                    group = 'Web Search'
+                elif label.startswith('scrape:'):
+                    group = 'Web Scraping'
+                elif label.startswith('evidence_rank:'):
+                    group = 'RAV (Evidence Ranking)'
+                elif label.startswith('action_needed_iter_'):
+                    group = 'Evidence Synthesis'
+                elif label.startswith('action_needed_action_exec_'):
+                    group = 'Action Execution'
+                elif label == 'planning':
+                    group = 'Planning'
+                elif label == 'claim_filtering':
+                    group = 'Claim Filtering'
+                elif label == 'judge' or label.startswith('judge_try_'):
+                    group = 'Judge'
+                elif label == 'initial_action_execution':
+                    group = 'Initial Action Execution'
+                elif label == 'factcheck_run':
+                    group = 'Total (FactCheck Run)'
+                else:
+                    group = 'Other'
+                
+                if group not in timing_groups:
+                    timing_groups[group] = []
+                timing_groups[group].append({
+                    'label': label,
+                    'duration': duration
+                })
+            
+            # Ghi tổng thời gian
+            f.write(f"**Tổng thời gian xử lý:** {total_duration:.2f} giây ({total_duration/60:.2f} phút)\n\n")
+            
+            # Ghi chi tiết theo nhóm
+            for group, items in sorted(timing_groups.items()):
+                group_total = sum(item['duration'] for item in items)
+                group_percentage = (group_total / total_duration * 100) if total_duration > 0 else 0
+                
+                f.write(f"### {group}\n")
+                f.write(f"**Tổng:** {group_total:.2f}s ({group_percentage:.1f}%)\n\n")
+                
+                # Sắp xếp items theo duration (descending)
+                items_sorted = sorted(items, key=lambda x: x['duration'], reverse=True)
+                
+                for item in items_sorted:
+                    label = item['label']
+                    duration = item['duration']
+                    percentage = (duration / total_duration * 100) if total_duration > 0 else 0
+                    
+                    # Format label cho đẹp
+                    display_label = label
+                    if ':' in display_label:
+                        display_label = display_label.split(':', 1)[1].strip()
+                    
+                    f.write(f"- `{display_label}`: {duration:.2f}s ({percentage:.1f}%)\n")
+                
+                f.write("\n")
+            
+            # Top 5 bước chậm nhất
+            f.write("### Top 5 Bước Chậm Nhất\n\n")
+            top_5 = sorted(timings, key=lambda x: x.get('duration', 0), reverse=True)[:5]
+            for i, timing in enumerate(top_5, 1):
+                label = timing.get('label', 'unknown')
+                duration = timing.get('duration', 0)
+                percentage = (duration / total_duration * 100) if total_duration > 0 else 0
+                
+                # Format label
+                display_label = label
+                if ':' in display_label:
+                    display_label = display_label.split(':', 1)[1].strip()
+                
+                f.write(f"{i}. `{display_label}`: {duration:.2f}s ({percentage:.1f}%)\n")
+            
+            f.write("\n" + "=" * 80 + "\n\n")
+    except Exception as e:
+        print(f"Error appending timing info: {e}")
+
+def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None, processing_time=None, clean_claim=None):
     """Writes detailed fact-checking results to a CSV file with fixed columns.
     Ensures a sample is only written once (skip if same report_path or id already present)."""
     try:
@@ -153,7 +393,8 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 'compare',
                 'timestamp',
                 'report_path',
-                'model'
+                'model',
+                'processing_time'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             if not file_exists:
@@ -161,6 +402,11 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
 
             evidence_clean = ' '.join(evidence.strip().split()) if evidence else ""
             reasoning_clean = ' '.join(reasoning.strip().split()) if reasoning else ""
+            # Use provided clean_claim if available, otherwise compute from claim
+            if clean_claim is None:
+                clean_claim = ' '.join(claim.strip().split()) if claim else ""
+            else:
+                clean_claim = ' '.join(clean_claim.strip().split()) if clean_claim else ""
 
             writer.writerow({
                 'id': claim_id if claim_id is not None else "",
@@ -174,12 +420,13 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 'compare': 1 if (label_num is not None and pred_num is not None and label_num == pred_num) else 0,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'report_path': report_path or "",
-                'model': model_name or ""
+                'model': model_name or "",
+                'processing_time': f"{processing_time:.2f}" if processing_time is not None else ""
             })
     except Exception as e:
         print(f"Error writing to CSV: {e}")
 
-def calculate_metrics(csv_path):
+def calculate_metrics(csv_path, avg_processing_time=None, total_processing_time=None):
     """Calculate metrics using numeric labels and write them to metrics.txt"""
     try:
         print(f"Reading CSV from: {csv_path}")
@@ -268,6 +515,14 @@ def calculate_metrics(csv_path):
                 if model_names:
                     mf.write("\n\nModels used:\n")
                     mf.write(", ".join(model_names))
+                # Thêm thông tin thời gian
+                mf.write("\n\n" + "=" * 50 + "\n")
+                mf.write("THỐNG KÊ THỜI GIAN:\n")
+                mf.write("=" * 50 + "\n")
+                if total_processing_time is not None:
+                    mf.write(f"Tổng thời gian: {total_processing_time:.2f} giây ({total_processing_time/60:.2f} phút)\n")
+                if avg_processing_time is not None:
+                    mf.write(f"Thời gian trung bình mỗi sample: {avg_processing_time:.2f} giây\n")
             print(f"Successfully wrote metrics to {metrics_path}")
         except Exception as e:
             print(f"Error writing metrics file: {e}")
@@ -283,6 +538,8 @@ def calculate_metrics(csv_path):
 
 def get_report_content():
     """Reads the current report content to extract sections."""
+    import re
+    
     if not REPORT_PATH or not os.path.exists(REPORT_PATH):
         return None, None, None, None
         
@@ -290,30 +547,54 @@ def get_report_content():
     action_needed = ""
     verdict = ""
     justification = ""
-    current_section = None
     
     try:
         with open(REPORT_PATH, 'r', encoding='utf-8') as f:
             content = f.read()
             
-            # Split content by sections
-            sections = content.split('###')
+            # Extract evidence từ các dòng web_search(...) Summary: ...
+            evidence_pieces = []
             
-            for section in sections:
-                if not section.strip():
-                    continue
-                    
-                if 'Evidence' in section:
-                    evidence = section.replace('Evidence', '').strip()
-                elif 'action_needed' in section:
-                    action_needed = section.replace('action_needed', '').strip()
-                elif 'Verdict' in section:
-                    verdict = section.replace('Verdict', '').strip()
-                elif 'Justification' in section:
-                    justification = section.replace('Justification', '').strip()
+            # Pattern 1: web_search('...') Summary: ... (format hiện tại)
+            pattern1 = re.compile(r"web_search\([^)]+\)\s+Summary:\s*(.+?)(?=\n\n|\nweb_search\(|\n###|$)", re.DOTALL | re.IGNORECASE)
+            matches1 = pattern1.findall(content)
+            for match in matches1:
+                summary = match.strip()
+                # Filter out log text and metadata
+                if summary and not summary.startswith(('📋', '🔍', '✅', '→', '•', 'BƯỚC', 'WEB SEARCH', 'WEB SCRAPING', 'RAV', 'Chunk #', 'score:', 'Content preview:', 'Snippets preview:', 'URLs:', 'Query:', 'Domain:')) and len(summary) > 10:
+                    evidence_pieces.append(summary)
+            
+            # Pattern 2: web_search(...), Summary: ... (format có dấu phẩy)
+            pattern2 = re.compile(r"web_search\([^)]+\)\s*,\s*Summary:\s*(.+?)(?=\n\n|\nweb_search\(|\n###|$)", re.DOTALL | re.IGNORECASE)
+            matches2 = pattern2.findall(content)
+            for match in matches2:
+                summary = match.strip()
+                if summary and not summary.startswith(('📋', '🔍', '✅', '→', '•', 'BƯỚC', 'WEB SEARCH', 'WEB SCRAPING', 'RAV', 'Chunk #', 'score:', 'Content preview:', 'Snippets preview:', 'URLs:', 'Query:', 'Domain:')) and len(summary) > 10:
+                    evidence_pieces.append(summary)
+            
+            # Join evidence pieces với separator
+            if evidence_pieces:
+                evidence = "\n\n".join(evidence_pieces)
+            
+            # Extract action_needed từ section ### Action Needed
+            action_needed_match = re.search(r'###\s*Action Needed\s*\n\n(.+?)(?=\n###|$)', content, re.DOTALL | re.IGNORECASE)
+            if action_needed_match:
+                action_needed = action_needed_match.group(1).strip()
+            
+            # Extract verdict từ section ### Verdict
+            verdict_match = re.search(r'###\s*Verdict\s*\n\n(.+?)(?=\n###|$)', content, re.DOTALL | re.IGNORECASE)
+            if verdict_match:
+                verdict = verdict_match.group(1).strip()
+            
+            # Extract justification từ section ### Justification
+            justification_match = re.search(r'###\s*Justification\s*\n\n(.+?)(?=\n###|$)', content, re.DOTALL | re.IGNORECASE)
+            if justification_match:
+                justification = justification_match.group(1).strip()
                     
         return evidence, action_needed, verdict, justification
         
     except Exception as e:
         print(f"Error reading report content: {e}")
+        import traceback
+        traceback.print_exc()
         return None, None, None, None

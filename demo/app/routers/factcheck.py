@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException, status
 from models.claim import FactCheckRequest, FactCheckResponse
 from services.factcheck_service import FactCheckService
+from core.config import settings
 
 router = APIRouter()
 service = FactCheckService()

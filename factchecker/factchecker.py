@@ -63,7 +63,7 @@ class FactChecker:
         self.image_path = image_path
         if identifier is None:
             from datetime import datetime
-            identifier = datetime.now().strftime("%m%d%Y%H%M%S")
+            identifier = datetime.now().strftime("%Y%m%d%H%M%S")
         self.identifier = identifier
         if model_name:
             llm.set_default_ollama_model(model_name)
@@ -92,6 +92,14 @@ class FactChecker:
         self._result_executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
         self._unsupported_domains = {"youtube.com", "youtu.be", "twitter.com", "x.com"}
         self._timers = TimerTracker()
+        
+        # Pre-load models before starting multi-threaded processing
+        # This ensures models are loaded once and shared across threads
+        retriver_rav.preload_models()
+        evaluation.preload_models()
+        # Pre-load accent restoration model
+        from .preprocessing.preprocessing import preload_accent_model
+        preload_accent_model()
 
         # Save initial JSON report
         self.save_report_json()
@@ -120,12 +128,65 @@ class FactChecker:
             return f"Error reading report: {e}"
 
     def get_trimmed_record(self, max_chars=4000):
+        """
+        Trim record while preserving the claim at the beginning and all evidence.
+        Strategy: 
+        1. Keep claim section
+        2. Keep ALL evidence section (important for fact-checking)
+        3. Keep recent actions/verdict from the end if space allows
+        """
         record = self.get_report()
         if not record or not max_chars:
             return record
         if len(record) <= max_chars:
             return record
-        return record[-max_chars:]
+        
+        # Find the claim section (first few lines with # Claim:)
+        claim_match = re.search(r'^#\s*Claim:\s*(.+?)(?=\n##|\n###|$)', record, re.MULTILINE | re.DOTALL)
+        if not claim_match:
+            print("Warning: Could not find claim section in record, using end of record")
+            return record[-max_chars:]
+        
+        # Reconstruct the full claim section including the header
+        claim_content = claim_match.group(1).strip()
+        claim_section = f"# Claim: {claim_content}\n"
+        
+        # Find Evidence section (keep ALL evidence - critical for fact-checking)
+        evidence_match = re.search(r'(###\s*Evidence\s*\n\n.*?)(?=\n###|$)', record, re.DOTALL | re.IGNORECASE)
+        evidence_section = evidence_match.group(1) if evidence_match else ""
+        
+        # Get the rest after evidence (actions, verdict, etc.)
+        if evidence_match:
+            rest_after_evidence = record[evidence_match.end():]
+        else:
+            rest_after_evidence = record[claim_match.end():]
+        
+        # Calculate space used
+        used_chars = len(claim_section) + len(evidence_section)
+        remaining_chars = max_chars - used_chars
+        
+        # CRITICAL: Evidence section is essential for fact-checking
+        # If evidence section alone exceeds max_chars, we still keep it all
+        # (better to have all evidence than truncate and lose important info)
+        if len(evidence_section) > max_chars:
+            # Evidence section is too long, but we MUST keep it all
+            # Return claim + ALL evidence (ignore max_chars limit for evidence)
+            # This ensures all evidence is available for judge
+            print(f"Warning: Evidence section ({len(evidence_section)} chars) exceeds max_chars ({max_chars}). Keeping all evidence.")
+            return claim_section + evidence_section
+        
+        if remaining_chars > 0:
+            # Keep recent actions/verdict from the end if space allows
+            if len(rest_after_evidence) <= remaining_chars:
+                return claim_section + evidence_section + rest_after_evidence
+            else:
+                # Keep claim + ALL evidence + end of record (actions/verdict)
+                return claim_section + evidence_section + rest_after_evidence[-remaining_chars:]
+        else:
+            # Claim + evidence fits exactly or slightly over
+            # Truncate claim if necessary, but keep all evidence
+            claim_max = max(100, max_chars - len(evidence_section))  # Keep at least 100 chars of claim
+            return claim_section[:claim_max] + evidence_section
 
     def process_action_line(self, line):
         try:
@@ -143,10 +204,31 @@ class FactChecker:
                     return
 
                 if action.lower() == 'web':
+                    # Log web search step
+                    web_search_logs = []
+                    report_writer.log_step(
+                        "Web Search - Input",
+                        {"Query": query, "Date": self.date, "Top_k": 5},
+                        web_search_logs
+                    )
+                    
                     with self._report_lock:
                         self.report["actions"][identifier] = action_entry
                     with self._timers.track(f"web_search:{query}"):
-                        urls, snippets = web_search.web_search(query, self.date, top_k=3)
+                        urls, snippets = web_search.web_search(query, self.date, top_k=5)
+                    
+                    report_writer.log_step(
+                        "Web Search - Output",
+                        {
+                            "Number of URLs found": len(urls),
+                            "URLs": urls,  # Ghi đầy đủ tất cả URLs
+                            "Snippets": snippets  # Ghi đầy đủ tất cả snippets
+                        },
+                        web_search_logs
+                    )
+                    
+                    # Append web search log to report
+                    report_writer.append_pipeline_log(f"BƯỚC 2: WEB SEARCH - Query: {query}", web_search_logs)
 
                     # Default with snippets from web_search
                     results_payload = {url: {"snippet": snippet, 'url': url, 'summary': None} for url, snippet in zip(urls, snippets)}
@@ -155,18 +237,63 @@ class FactChecker:
 
                     def process_result(result):
                         domain = urlparse(result).netloc.lower()
+                        
+                        # Log web scraping step
+                        scraping_logs = []
+                        report_writer.log_step(
+                            "Web Scraping - Input",
+                            {"URL": result, "Domain": domain},
+                            scraping_logs
+                        )
+                        
                         if any(blocked in domain for blocked in self._unsupported_domains):
+                            report_writer.log_step(
+                                "Web Scraping - Skipped",
+                                {"Reason": "Unsupported domain", "Domain": domain},
+                                scraping_logs
+                            )
+                            report_writer.append_pipeline_log(f"BƯỚC 3: WEB SCRAPING - {result}", scraping_logs)
                             print(f"Skipping unsupported domain: {result}")
                             return None
 
                         with self._timers.track(f"scrape:{domain}"):
-                            scraped_content = web_scraper.scrape_url_content_playwright(result)
+                            scraped_content = web_scraper.scrape_url_content(result)
                         if not scraped_content:
+                            report_writer.log_step(
+                                "Web Scraping - Failed",
+                                {"Reason": "Empty content", "Content length": 0},
+                                scraping_logs
+                            )
+                            report_writer.append_pipeline_log(f"BƯỚC 3: WEB SCRAPING - {result}", scraping_logs)
                             print(f"Skipping empty scrape for: {result}")
                             return None
+                        
+                        report_writer.log_step(
+                            "Web Scraping - Output",
+                            {
+                                "Content length": len(scraped_content),
+                                "Content": scraped_content  # Ghi đầy đủ content, không truncate
+                            },
+                            scraping_logs
+                        )
+                        report_writer.append_pipeline_log(f"BƯỚC 3: WEB SCRAPING - {result}", scraping_logs)
 
+                        # Tạo log callback để ghi lại quá trình RAV
+                        rav_log_lines = []
+                        def rav_log_callback(msg):
+                            rav_log_lines.append(msg)
+                            print(f"[RAV] {msg}")
+                        
                         with self._timers.track(f"evidence_rank:{domain}"):
-                            summary = retriver_rav.get_top_evidence(self.claim, scraped_content)
+                            summary = retriver_rav.get_top_evidence(
+                                self.claim, 
+                                scraped_content,
+                                log_callback=rav_log_callback
+                            )
+                            
+                            # Ghi log RAV vào report với format chuẩn
+                            if rav_log_lines:
+                                report_writer.append_pipeline_log(f"BƯỚC 4: RAV (Evidence Ranking) - {result}", rav_log_lines)
 
                         if "NONE" in summary:
                             print(f"Skipping summary for evidence: {result}")
@@ -190,17 +317,52 @@ class FactChecker:
 
     def run(self):
         try:
+            # Initialize pipeline log
+            pipeline_logs = []
+            
             with self._timers.track("factcheck_run"):
+                # STEP 1: Claim Filtering
                 with self._timers.track("claim_filtering"):
+                    original_claim = self.claim
                     self.claim = claim_detection.claim_filter(self.claim)
+                    if self.claim is None or not self.claim.strip():
+                        raise ValueError("Filtered claim is empty")
+                    
+                    claim_filtering_logs = []
+                    report_writer.log_step(
+                        "Claim Filtering",
+                        {
+                            "Original claim": original_claim,
+                            "Filtered claim": self.claim,
+                            "Changed": original_claim != self.claim
+                        },
+                        claim_filtering_logs
+                    )
+                    # Append claim filtering log to report
+                    report_writer.append_pipeline_log("BƯỚC 0: CLAIM FILTERING", claim_filtering_logs)
                     print(f"Filtered claim: {self.claim}")
 
+                # STEP 2: Planning
+                planning_logs = []
                 with self._timers.track("planning"):
+                    report_writer.log_step("Planning - Input", {"Claim": self.claim}, planning_logs)
                     queries = planning.plan(self.claim, think=False)
+                    queries_lines = [x.strip() for x in queries.split('\n') if x.strip()]
+                    action_lines = ["web_search(\"" + line + "\")" for line in queries_lines if line]
+                    
+                    report_writer.log_step(
+                        "Planning - Output",
+                        {
+                            "Generated queries": queries_lines,
+                            "Number of queries": len(queries_lines),
+                            "Action lines": action_lines
+                        },
+                        planning_logs
+                    )
+                    
+                    # Append planning log to report
+                    report_writer.append_pipeline_log("BƯỚC 1: PLANNING (Tạo Query Tìm Kiếm)", planning_logs)
                 
-                queries_lines = [x.strip() for x in queries.split('\n') if x.strip()]
-                action_lines = ["web_search(\"" + line + "\")" for line in queries_lines if line]
-
                 report_writer.append_iteration_actions(1, '\n'.join(action_lines))
                 print(f"Proposed actions for claim '{self.claim}':\n{action_lines}")
 
@@ -222,11 +384,34 @@ class FactChecker:
                 iterations = 0
                 seen_action_lines = set(action_lines)
                 action_needed_conclusion = None
-                while iterations <= 1:
+                while iterations <= -1:
+                    # Log evidence synthesis step
+                    synthesis_logs = []
+                    report_writer.log_step(
+                        f"Evidence Synthesis - Iteration {iterations + 1}",
+                        {
+                            "Input": "Current record with evidence",
+                            "Max chars": 3000
+                        },
+                        synthesis_logs
+                    )
+                    
                     with self._timers.track(f"action_needed_iter_{iterations+1}"):
                         # Use smaller trimmed record for faster processing
                         action_needed = evidence_synthesis.develop(record=self.get_trimmed_record(max_chars=3000), think=False)
 
+                    report_writer.log_step(
+                        "Evidence Synthesis - Output",
+                        {
+                            "Action needed": action_needed,
+                            "Conclusion": "SUFFICIENT" if ('đã đủ bằng chứng' in action_needed.lower() or 'đủ bằng chứng' in action_needed.lower()) else "NEED_MORE"
+                        },
+                        synthesis_logs
+                    )
+                    
+                    # Append synthesis log to report
+                    report_writer.append_pipeline_log(f"BƯỚC 5: EVIDENCE SYNTHESIS - Iteration {iterations + 1}", synthesis_logs)
+                    
                     print(f"Developed action_needed:\n{action_needed}")
                     report_writer.append_action_needed(action_needed)
 
@@ -289,6 +474,7 @@ class FactChecker:
                 verdict = None
                 
                 # If action_needed already concluded sufficient evidence, try to extract verdict from action_needed
+                evidence_info = None
                 if action_needed_conclusion == "SUFFICIENT":
                     # Try to extract verdict directly from action_needed to skip expensive judge call
                     action_needed_text = self.report["action_needed"][-1] if self.report["action_needed"] else ""
@@ -296,15 +482,35 @@ class FactChecker:
                         pred_verdict = "Supported"
                         verdict = f"### Justification:\n{action_needed_text}\n\n### Verdict:\n`Supported`"
                         print("[JUDGE] Skipped judge call, using action_needed conclusion: Supported")
+                        # Tạo evidence_info rỗng vì không gọi judge
+                        evidence_info = {
+                            "claim": self.claim,
+                            "total_evidence": 0,
+                            "filtered_evidence_count": 0,
+                            "selected_evidence_count": 0,
+                            "top_k": 6,
+                            "selected_evidence": [],
+                            "selected_scores": []
+                        }
                 
                 # If we don't have a verdict yet, call judge
+                evidence_info = None
                 if not verdict:
                     while judge_tries < max_judge_tries:
                         with self._timers.track(f"judge_try_{judge_tries+1}"):
-                            record = self.get_trimmed_record(max_chars=3000)
-                            claim = evaluation.extract_claim_from_record(record)
-                            evidence_pieces = evaluation.extract_evidence_pieces(record)
-                            verdict = evaluation._llm_judge_with_evidence(claim, evidence_pieces, top_k=6)
+                            result = evaluation.judge(
+                                record=self.get_trimmed_record(max_chars=3000),
+                                decision_options="Supported|Refuted|Not Enough Evidence",
+                                rules=rules,
+                                think=False
+                            )
+                            # Judge now returns tuple (verdict_string, evidence_info)
+                            if isinstance(result, tuple) and len(result) == 2:
+                                verdict, evidence_info = result
+                            else:
+                                # Backward compatibility: if judge returns string only
+                                verdict = result
+                                evidence_info = None
                         print(f"Judged verdict (try {judge_tries+1}):\n{verdict}")
                         extracted_verdict = re.search(r'`(.*?)`', verdict, re.DOTALL)
                         pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else ''
@@ -362,11 +568,45 @@ class FactChecker:
                             pred_verdict = "INVALID VERDICT"
                             print("No decision options found in verdict, defaulting to 'INVALID VERDICT'.")
 
+                # Ghi thông tin evidence vào report.md trước khi ghi verdict
+                if evidence_info:
+                    # Ghi log quá trình filter evidence nếu có
+                    if 'filter_log' in evidence_info:
+                        report_writer.append_pipeline_log("BƯỚC 6: EVIDENCE FILTERING & SELECTION", evidence_info['filter_log'])
+                    report_writer.append_evidence_info(evidence_info)
+                    
+                    # Log judge step
+                    judge_logs = []
+                    report_writer.log_step(
+                        "Judge - Input",
+                        {
+                            "Claim": evidence_info.get('claim', 'N/A'),
+                            "Selected evidence count": evidence_info.get('selected_evidence_count', 0),
+                            "Top_k": evidence_info.get('top_k', 0)
+                        },
+                        judge_logs
+                    )
+                    report_writer.log_step(
+                        "Judge - Output",
+                        {
+                            "Verdict": pred_verdict,
+                            "Justification preview": verdict[:200] + "..." if len(verdict) > 200 else verdict
+                        },
+                        judge_logs
+                    )
+                    report_writer.append_pipeline_log("BƯỚC 7: JUDGE (Final Verdict)", judge_logs)
+                
                 report_writer.append_verdict(pred_verdict)
                 report_writer.append_justification(verdict)
+                
+                # Ghi thông tin timing vào report
+                report_writer.append_timing_info(self._timers.records)
+                
                 with self._report_lock:
                     self.report["justification"] = verdict
                     self.report["verdict"] = pred_verdict
+                    if evidence_info:
+                        self.report["evidence_info"] = evidence_info
                 self.save_report_json()
 
                 return pred_verdict, report_writer.REPORT_PATH
@@ -375,7 +615,14 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=MAX_ACTIONS, expected_label=None, model_name=None):
-    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
-    verdict, report_path = checker.run()
-    return verdict, report_path
+def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None, model_name=None):
+    try:
+        checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
+        verdict, report_path = checker.run()
+        return verdict, report_path
+    except Exception as e:
+        error_message = "Lỗi. Hãy nhập 1 câu cần kiểm chứng"
+        print(f"Error in factcheck: {e}")
+        print(error_message)
+        # Raise exception with user-friendly message so frontend can display it
+        raise ValueError(error_message) from e

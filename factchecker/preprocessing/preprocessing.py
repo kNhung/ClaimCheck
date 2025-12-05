@@ -156,25 +156,53 @@ TAG_PATH = "selected_tags_names.txt"
 if not os.path.exists(TAG_PATH):
     urllib.request.urlretrieve(TAG_URL, TAG_PATH)
 
-# ------------------- Load model & tokenizer -------------------
-tokenizer = AutoTokenizer.from_pretrained("peterhung/vietnamese-accent-marker-xlm-roberta", add_prefix_space=True)
-model = AutoModelForTokenClassification.from_pretrained(
-    "peterhung/vietnamese-accent-marker-xlm-roberta",
-    device_map=None  # Prevent meta device usage
-)
+# ------------------- Lazy load model & tokenizer with caching -------------------
+_tokenizer_cache = None
+_model_cache = None
+_label_list_cache = None
+_device_cache = None
+_model_lock = __import__('threading').Lock()
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model.to(device)
-model.eval()
-# ------------------- Load danh sách nhãn -------------------
-with open(TAG_PATH, 'r', encoding='utf-8') as f:
-    label_list = [line.strip() for line in f if line.strip()]
+def _get_accent_model():
+    """Get accent restoration model with thread-safe caching."""
+    global _tokenizer_cache, _model_cache, _device_cache
+    if _model_cache is None:
+        with _model_lock:
+            # Double-check pattern to avoid race condition
+            if _model_cache is None:
+                _tokenizer_cache = AutoTokenizer.from_pretrained("peterhung/vietnamese-accent-marker-xlm-roberta", add_prefix_space=True)
+                _model_cache = AutoModelForTokenClassification.from_pretrained("peterhung/vietnamese-accent-marker-xlm-roberta")
+                _device_cache = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                _model_cache.to(_device_cache)
+                _model_cache.eval()
+    return _tokenizer_cache, _model_cache, _device_cache
+
+def _get_label_list():
+    """Get label list with caching."""
+    global _label_list_cache
+    if _label_list_cache is None:
+        with open(TAG_PATH, 'r', encoding='utf-8') as f:
+            _label_list_cache = [line.strip() for line in f if line.strip()]
+    return _label_list_cache
+
+def preload_accent_model():
+    """Pre-load accent restoration model to avoid loading it multiple times."""
+    try:
+        _get_accent_model()
+        _get_label_list()
+        print("✓ Accent restoration model pre-loaded")
+    except Exception as e:
+        print(f"Warning: Failed to pre-load accent restoration model: {e}")
 # ------------------- Hàm chính: phục hồi dấu tiếng Việt -------------------
 def restore_vietnamese_accents(text: str) -> str:
     """
     Input : "Su kien hoat dong Nam Du lich quoc gia 2023"
     Output: "Sự kiện hoạt động Năm Du lịch quốc gia 2023"
     """
+    # Get cached model and tokenizer (lazy loaded)
+    tokenizer, model, device = _get_accent_model()
+    label_list = _get_label_list()
+    
     # Bước 1: Tách thành list từ
     words = text.strip().split()
     if not words:

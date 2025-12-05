@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { verifyClaim } from './api/factcheck.js'
+import React, { useState, useEffect } from 'react'
+import { verifyClaim, getReportMarkdown } from './api/factcheck.js'
 import './App.css'
 
 function App() {
@@ -8,6 +8,7 @@ function App() {
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [history, setHistory] = useState([])
+  const [reportData, setReportData] = useState(null)
 
   const handleSubmit = async () => {
     console.log('Submit button clicked')
@@ -20,6 +21,7 @@ function App() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setReportData(null) // Reset report data when submitting new claim
 
     // Use today's date (format: DD-MM-YYYY for API)
     const today = new Date()
@@ -35,30 +37,234 @@ function App() {
         date: apiDate,
       })
       console.log('API response received:', response)
-      setResult(response)
       
-      // Add to history
-      const historyItem = {
-        id: response.report_id || Date.now().toString(),
-        claim: claim.trim(),
-        verdict: response.verdict,
-        date: apiDate,
-        timestamp: new Date().toISOString(),
-        fullResult: response
+      // Check if verdict indicates an error case (null or invalid verdict with very short/invalid claim)
+      const claimLength = claim.trim().length
+      if (!response.verdict || response.verdict === null || 
+          (response.verdict === 'Not Enough Evidence' && claimLength < 5)) {
+        // Treat as error case - claim is too short or invalid
+        const errorMessage = 'Lỗi. Hãy nhập thông tin cần kiểm chứng.'
+        setError(errorMessage)
+        setResult(null)
+        setReportData(null)
+      } else {
+        setResult(response)
+        setError(null) // Clear any previous errors
+        
+        // Fetch and parse report markdown
+        if (response.report_id) {
+          try {
+            console.log('Fetching report markdown for report_id:', response.report_id)
+            const markdown = await getReportMarkdown(response.report_id)
+            console.log('Received markdown, length:', markdown?.length)
+            const parsed = parseReportMarkdown(markdown)
+            console.log('Parsed data:', parsed)
+            setReportData(parsed)
+          } catch (err) {
+            console.error('Failed to fetch report markdown:', err)
+            setReportData(null)
+          }
+        } else {
+          console.log('No report_id in response')
+        }
+        
+        // Add to history only if we have a valid result
+        const historyItem = {
+          id: response.report_id || Date.now().toString(),
+          claim: claim.trim(),
+          verdict: response.verdict,
+          date: apiDate,
+          timestamp: new Date().toISOString(),
+          fullResult: response
+        }
+        setHistory(prev => [historyItem, ...prev])
       }
-      setHistory(prev => [historyItem, ...prev])
     } catch (err) {
       console.error('API error:', err)
       console.error('Error details:', err.response?.data)
-      setError(err.response?.data?.detail || err.message || 'Đã xảy ra lỗi khi kiểm chứng')
+      
+      // Extract error message from response
+      let errorMessage = err.response?.data?.detail || err.message || 'Đã xảy ra lỗi khi kiểm chứng'
+      
+      // Check if error message contains our specific error message from backend
+      if (errorMessage.includes('Lỗi. Hãy nhập 1 câu cần kiểm chứng')) {
+        errorMessage = 'Lỗi. Hãy nhập thông tin cần kiểm chứng.'
+      } else if (errorMessage.includes('Fact-checking failed:')) {
+        // Extract the actual error message after "Fact-checking failed: "
+        const actualError = errorMessage.replace('Fact-checking failed: ', '')
+        if (actualError.includes('Lỗi. Hãy nhập 1 câu cần kiểm chứng')) {
+          errorMessage = 'Lỗi. Hãy nhập thông tin cần kiểm chứng.'
+        }
+      }
+      
+      setError(errorMessage)
     } finally {
       setLoading(false)
       console.log('Request completed')
     }
   }
 
-  const handleHistoryClick = (historyItem) => {
+  const handleHistoryClick = async (historyItem) => {
+    // Set the claim in the input field
+    setClaim(historyItem.claim)
     setResult(historyItem.fullResult)
+    // Fetch report data when clicking history item
+    if (historyItem.fullResult?.report_id) {
+      try {
+        const markdown = await getReportMarkdown(historyItem.fullResult.report_id)
+        const parsed = parseReportMarkdown(markdown)
+        setReportData(parsed)
+      } catch (err) {
+        console.error('Failed to fetch report markdown:', err)
+        setReportData(null)
+      }
+    }
+  }
+
+  // Parse report markdown to extract relevant information
+  const parseReportMarkdown = (markdown) => {
+    const data = {
+      webSearchResults: [],
+      evidenceSummary: []
+    }
+
+    if (!markdown) {
+      console.log('parseReportMarkdown: No markdown provided')
+      return data
+    }
+
+    console.log('parseReportMarkdown: Starting parse, markdown length:', markdown.length)
+
+    // Parse BƯỚC 4: RAV sections
+    const step4Regex = /📋 BƯỚC 4: RAV \(Evidence Ranking\) - (https?:\/\/[^\s]+)/g
+    const step4Matches = [...markdown.matchAll(step4Regex)]
+    
+    console.log('parseReportMarkdown: Found', step4Matches.length, 'BƯỚC 4 sections')
+
+    step4Matches.forEach((match, index) => {
+      const url = match[1]
+      const startIndex = match.index
+      
+      // Find the next BƯỚC 4 section or next major section
+      let nextSectionIndex = markdown.indexOf('📋 BƯỚC 4:', startIndex + 1)
+      if (nextSectionIndex < 0) {
+        // Look for next major section divider
+        nextSectionIndex = markdown.indexOf('📋 BƯỚC 6:', startIndex + 1)
+      }
+      if (nextSectionIndex < 0) {
+        // Look for final sections
+        nextSectionIndex = markdown.indexOf('📋 BƯỚC 7:', startIndex + 1)
+      }
+      
+      const sectionContent = nextSectionIndex > 0 
+        ? markdown.substring(startIndex, nextSectionIndex)
+        : markdown.substring(startIndex)
+      
+      console.log(`parseReportMarkdown: Processing BƯỚC 4 #${index + 1}, URL: ${url}, section length: ${sectionContent.length}`)
+
+      // Extract "KẾT QUẢ:" summary - look for the line after "✅ KẾT QUẢ:"
+      // But filter out "Đã chọn X chunk(s)...", "====", and score numbers
+      const ketQuaMatch = sectionContent.match(/✅ KẾT QUẢ:[^\n]*(?:\n[^\n]*)?/s)
+      let summary = ''
+      if (ketQuaMatch) {
+        let rawSummary = ketQuaMatch[0].replace(/✅ KẾT QUẢ:\s*/, '').trim()
+        // Remove "Đã chọn X chunk(s)..." lines
+        rawSummary = rawSummary.replace(/Đã chọn \d+ chunk\(s\)[^\n]*/gi, '')
+        // Remove "====" lines
+        rawSummary = rawSummary.replace(/=+\s*/g, '')
+        // Remove score numbers - only remove score-specific patterns, keep content numbers
+        rawSummary = rawSummary.replace(/\(score:\s*[0-9.-]+\s*\)/gi, '')
+        rawSummary = rawSummary.replace(/score:\s*[0-9.-]+\s*/gi, '')
+        rawSummary = rawSummary.replace(/Chunk\s+#\d+/gi, '')
+        // Clean up multiple spaces
+        rawSummary = rawSummary.replace(/\s+/g, ' ').trim()
+        summary = rawSummary
+        console.log(`parseReportMarkdown: Found summary for ${url}:`, summary.substring(0, 50))
+      } else {
+        console.log(`parseReportMarkdown: No summary found for ${url}`)
+      }
+
+      // Extract "Top 3 chunks sau khi re-rank" content
+      const topChunksMatch = sectionContent.match(/Top 3 chunks sau khi re-rank \(cross-encoder scores\):(.*?)(?=✅ KẾT QUẢ:|📋 BƯỚC|==|$)/s)
+      let topChunks = ''
+      if (topChunksMatch) {
+        // Extract all chunk texts after the header
+        const chunksText = topChunksMatch[1]
+        // Match each chunk line: [1] Chunk #X (score: Y): TEXT (may span multiple lines)
+        // Pattern: [number] Chunk #number (score: number): TEXT
+        const chunkRegex = /\[\d+\]\s+Chunk\s+#\d+\s*\(score:\s*[0-9.-]+\s*\):\s*(.*?)(?=\n\s*\[\d+\]|$)/gs
+        const chunkMatches = [...chunksText.matchAll(chunkRegex)]
+        if (chunkMatches.length > 0) {
+          // Only extract the text part, remove any remaining score info
+          topChunks = chunkMatches
+            .map(match => {
+              let text = match[1].trim()
+              // Remove any remaining score patterns that might be in the text
+              text = text.replace(/\(score:\s*[0-9.-]+\s*\)/gi, '')
+              text = text.replace(/score:\s*[0-9.-]+\s*/gi, '')
+              text = text.replace(/Chunk\s+#\d+/gi, '')
+              // Clean up multiple spaces but keep content
+              text = text.replace(/\s+/g, ' ').trim()
+              return text
+            })
+            .filter(text => text.length > 0)
+            .join('\n\n')
+        }
+      }
+
+      data.webSearchResults.push({
+        url,
+        summary,
+        topChunks
+      })
+      
+      console.log(`parseReportMarkdown: Added web result #${index + 1}:`, {
+        url,
+        hasSummary: !!summary,
+        hasTopChunks: !!topChunks
+      })
+    })
+    
+    console.log('parseReportMarkdown: Total webSearchResults:', data.webSearchResults.length)
+
+    // Parse BƯỚC 6: Evidence selection - look for evidence after "🔍 BƯỚC 6: Chọn top_"
+    const step6Index = markdown.indexOf('🔍 BƯỚC 6: Chọn top_')
+    console.log('parseReportMarkdown: BƯỚC 6 index:', step6Index)
+    
+    if (step6Index > 0) {
+      const step6Section = markdown.substring(step6Index)
+      // Find [E0], [E1], [E2] content - pattern: [E0] Score: X.XXXX - TEXT
+      const evidenceRegex = /\[E(\d+)\]\s+Score:[^\n-]*-\s*(.*?)(?=\n\s*\[E\d+\]|\n==|$)/gs
+      const evidenceMatches = [...step6Section.matchAll(evidenceRegex)]
+      
+      console.log('parseReportMarkdown: Found', evidenceMatches.length, 'evidence matches')
+
+      evidenceMatches.forEach(match => {
+        const index = parseInt(match[1])
+        let text = match[2].trim()
+        // Clean up text: remove any score references that might remain
+        text = text.replace(/Score:\s*[0-9.-]+\s*/gi, '')
+        text = text.replace(/\(score:\s*[0-9.-]+\s*\)/gi, '')
+        text = text.trim()
+        
+        if (index <= 2 && text) {
+          data.evidenceSummary.push({
+            index: index,
+            text: text
+          })
+          console.log(`parseReportMarkdown: Added evidence [E${index}]`)
+        }
+      })
+    } else {
+      console.log('parseReportMarkdown: BƯỚC 6 section not found')
+    }
+    
+    console.log('parseReportMarkdown: Final data:', {
+      webSearchResultsCount: data.webSearchResults.length,
+      evidenceSummaryCount: data.evidenceSummary.length
+    })
+
+    return data
   }
 
   const getVerdictClass = (verdict) => {
@@ -129,44 +335,73 @@ function App() {
           </button>
         </div>
 
-        {error && (
+        {error && !error.includes('Lỗi. Hãy nhập thông tin cần kiểm chứng') && (
           <div className="error-message">
             <strong>Lỗi:</strong> {error}
           </div>
         )}
 
-        {result && (
+        {(result || (error && error.includes('Lỗi. Hãy nhập thông tin cần kiểm chứng'))) && (
           <div className="result-container">
             <h2>Kết quả kiểm chứng</h2>
             <div className="result-content">
-              <div className="result-item">
-                <strong>Verdict:</strong>
-                <span className={`verdict verdict-${result.verdict?.toLowerCase().replace(/\s+/g, '-')}`}>
-                  {result.verdict}
-                </span>
-              </div>
-              <div className="result-item">
-                <strong>Report ID:</strong>
-                <span>{result.report_id}</span>
-              </div>
-              <div className="result-item">
-                <strong>Claim:</strong>
-                <span>{result.claim}</span>
-              </div>
-              <div className="result-item">
-                <strong>Ngày:</strong>
-                <span>{result.date}</span>
-              </div>
-              {result.model && (
-                <div className="result-item">
-                  <strong>Model:</strong>
-                  <span>{result.model}</span>
+              {error && error.includes('Lỗi. Hãy nhập thông tin cần kiểm chứng') ? (
+                <div className="result-verdict">
+                  <span className="verdict verdict-error">
+                    {error}
+                  </span>
+                </div>
+              ) : result && (
+                <div className="result-verdict">
+                  <span className={`verdict verdict-${result.verdict?.toLowerCase().replace(/\s+/g, '-')}`}>
+                    {result.verdict}
+                  </span>
                 </div>
               )}
-              <div className="result-item">
-                <strong>Report Path:</strong>
-                <span className="report-path">{result.report_path}</span>
-              </div>
+
+              {!error && reportData && reportData.webSearchResults && reportData.webSearchResults.length > 0 && (
+                <div className="result-section">
+                  <h3>Kết quả tìm kiếm trang web:</h3>
+                  {reportData.webSearchResults.map((item, idx) => (
+                    <div key={idx} className="web-result-item">
+                      <div className="web-result-url">
+                        <a href={item.url} target="_blank" rel="noopener noreferrer">
+                          {item.url}
+                        </a>
+                      </div>
+                      {item.summary && (
+                        <div className="web-result-summary">
+                          <strong>Tổng hợp kết quả ở trang web:</strong> {item.summary}
+                        </div>
+                      )}
+                      {item.topChunks && (
+                        <div className="web-result-chunks">
+                          <pre className="chunks-text">{item.topChunks}</pre>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              {loading && (
+                <div className="result-section">
+                  <p>Đang tải dữ liệu từ report...</p>
+                </div>
+              )}
+
+              {!error && reportData && reportData.evidenceSummary && reportData.evidenceSummary.length > 0 && (
+                <div className="result-section">
+                  <h3>Bằng chứng sau cùng:</h3>
+                  <ul className="evidence-list">
+                    {reportData.evidenceSummary.map((item) => (
+                      <li key={item.index} className="evidence-item">
+                        {item.text}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
         )}

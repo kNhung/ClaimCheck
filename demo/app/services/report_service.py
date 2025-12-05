@@ -18,7 +18,21 @@ class ReportService:
     """Service for managing fact-check reports."""
     
     def __init__(self):
-        self.reports_dir = Path(settings.REPORTS_DIR)
+        # Get absolute path to reports directory
+        # REPORTS_DIR is relative to project root, so we need to resolve it from project root
+        # Service is in demo/app/services/, so go up to project root: ../../../reports
+        service_dir = Path(__file__).parent  # demo/app/services
+        app_dir = service_dir.parent  # demo/app
+        demo_dir = app_dir.parent  # demo
+        project_root = demo_dir.parent  # project root
+        
+        reports_dir_str = settings.REPORTS_DIR
+        if Path(reports_dir_str).is_absolute():
+            self.reports_dir = Path(reports_dir_str)
+        else:
+            # Relative path from project root
+            self.reports_dir = project_root / reports_dir_str
+        
         self.reports_dir.mkdir(parents=True, exist_ok=True)
     
     def _get_report_dir(self, report_id: str) -> Path:
