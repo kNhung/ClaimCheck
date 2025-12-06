@@ -402,6 +402,30 @@ def build_evidence_graph(claim: str, evidence_pieces: List[str], similarity_thre
     return G
 
 
+def compute_evidence_scores_bi_encoder(claim: str, evidence_pieces: List[str]) -> np.ndarray:
+    """
+    Compute claim-evidence similarity scores using bi-encoder (fast, approximate).
+    This is used for pre-filtering before using the slower cross-encoder.
+    
+    Returns:
+        Array of cosine similarity scores [0, 1] for each evidence piece
+    """
+    if not evidence_pieces:
+        return np.array([])
+    
+    bi_model = _get_bi_model()
+    claim_emb = bi_model.encode(claim, normalize_embeddings=True)
+    evidence_embs = bi_model.encode(evidence_pieces, normalize_embeddings=True)
+    
+    # Compute cosine similarities (already normalized)
+    cos_sims = np.dot(evidence_embs, claim_emb)
+    
+    # Normalize to [0, 1] range (cosine similarity is in [-1, 1])
+    cos_sims = (cos_sims + 1.0) / 2.0
+    
+    return cos_sims
+
+
 def compute_evidence_scores(claim: str, evidence_pieces: List[str]) -> np.ndarray:
     """
     Compute fine-grained claim-evidence alignment scores using cross-encoder.
@@ -1429,9 +1453,14 @@ def _normalize_llm_verdict(raw: str) -> str:
 def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str], 
                                   relevance_threshold: float = 0.3,
                                   min_keep: int = 3,
+                                  bi_prefilter_top_n: int = 15,
                                   log_callback=None) -> Tuple[List[str], List[float]]:
     """
     Lọc evidence dựa trên relevance score với claim.
+    Sử dụng 2-stage filtering:
+    1. Pre-filter với Bi-encoder (nhanh) để lấy top N evidence
+    2. Fine-grained filtering với CrossEncoder (chậm nhưng chính xác) cho top N
+    
     Chỉ giữ lại evidence có relevance score > threshold.
     NHƯNG luôn đảm bảo giữ lại ít nhất min_keep evidence (top evidence).
     
@@ -1440,6 +1469,7 @@ def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str],
         evidence_pieces: Danh sách evidence pieces
         relevance_threshold: Ngưỡng relevance tối thiểu (default: 0.3)
         min_keep: Số lượng evidence tối thiểu cần giữ lại (default: 3)
+        bi_prefilter_top_n: Số lượng evidence để pre-filter bằng Bi-encoder trước khi dùng CrossEncoder (default: 15)
         log_callback: Hàm callback để log các bước (optional)
     
     Returns:
@@ -1451,74 +1481,109 @@ def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str],
         return [], []
     
     if log_callback:
-        log_callback(f"\n🔍 BƯỚC 1: Tính relevance scores cho {len(evidence_pieces)} evidence pieces")
-        log_callback(f"   → Sử dụng CrossEncoder model")
+        log_callback(f"\n🔍 BƯỚC 1: Pre-filter với Bi-encoder cho {len(evidence_pieces)} evidence pieces")
+        log_callback(f"   → Sử dụng Bi-encoder model (nhanh) để lấy top {bi_prefilter_top_n} candidates")
         log_callback(f"   → Claim: {claim}")  # Ghi đầy đủ claim, không truncate
     
     try:
-        # Tính relevance scores bằng CrossEncoder
-        scores = compute_evidence_scores(claim, evidence_pieces)
+        # BƯỚC 1: Pre-filter với Bi-encoder để giảm số lượng evidence cần xử lý bằng CrossEncoder
+        # Bi-encoder nhanh hơn nhiều vì có thể encode tất cả cùng lúc
+        bi_scores = compute_evidence_scores_bi_encoder(claim, evidence_pieces)
+        
+        # Lấy top N evidence từ Bi-encoder scores
+        bi_prefilter_top_n = min(bi_prefilter_top_n, len(evidence_pieces))
+        top_bi_indices = np.argsort(-bi_scores)[:bi_prefilter_top_n]
+        top_bi_evidence = [evidence_pieces[i] for i in top_bi_indices]
+        
+        if log_callback:
+            log_callback(f"   → Đã chọn top {len(top_bi_evidence)} evidence từ Bi-encoder scores")
+            log_callback(f"   → Bi-encoder score range: [{bi_scores.min():.4f}, {bi_scores.max():.4f}]")
+            log_callback(f"   → Top {min(5, len(top_bi_evidence))} Bi-encoder scores:")
+            for idx, ev_idx in enumerate(top_bi_indices[:5]):
+                log_callback(f"      [{idx+1}] Score: {bi_scores[ev_idx]:.4f} - {evidence_pieces[ev_idx][:100]}...")
+        
+        # BƯỚC 2: Tính relevance scores bằng CrossEncoder chỉ cho top N evidence (chậm nhưng chính xác)
+        if log_callback:
+            log_callback(f"\n🔍 BƯỚC 2: Fine-grained filtering với CrossEncoder cho {len(top_bi_evidence)} evidence")
+            log_callback(f"   → Sử dụng CrossEncoder model (chậm nhưng chính xác)")
+        
+        scores = compute_evidence_scores(claim, top_bi_evidence)
         
         if log_callback:
             log_callback(f"   → Raw scores range: [{scores.min():.4f}, {scores.max():.4f}]")
         
-        # Normalize scores về [0, 1] nếu cần
+        # Normalize CrossEncoder scores về [0, 1] nếu cần
         if scores.size > 0:
             # CrossEncoder scores có thể âm hoặc dương
             # Strategy: normalize về [0, 1] nhưng giữ nguyên ranking
             min_score = scores.min()
             max_score = scores.max()
             if max_score > min_score:
-                scores_normalized = (scores - min_score) / (max_score - min_score)
+                cross_scores_normalized = (scores - min_score) / (max_score - min_score)
             else:
                 # Tất cả scores bằng nhau, set về 0.5
-                scores_normalized = np.full(len(scores), 0.5)
+                cross_scores_normalized = np.full(len(scores), 0.5)
         else:
-            scores_normalized = np.zeros(len(evidence_pieces))
+            cross_scores_normalized = np.zeros(len(top_bi_evidence))
+        
+        # Map CrossEncoder scores về original evidence_pieces indices
+        # cross_scores_normalized[i] corresponds to top_bi_evidence[i] which is evidence_pieces[top_bi_indices[i]]
+        scores_map = {}  # original_idx -> normalized_score
+        for i in range(len(top_bi_indices)):
+            orig_idx = top_bi_indices[i]
+            scores_map[orig_idx] = float(cross_scores_normalized[i])
+        
+        # Create normalized scores array for all evidence pieces
+        # Non-selected evidence (not in top_bi_indices) get score 0.0
+        scores_normalized = np.zeros(len(evidence_pieces))
+        for orig_idx, score in scores_map.items():
+            scores_normalized[orig_idx] = score
         
         if log_callback:
-            log_callback(f"   → Normalized scores range: [{scores_normalized.min():.4f}, {scores_normalized.max():.4f}]")
-            log_callback(f"   → Top 5 evidence scores:")
-            top_5_indices = np.argsort(-scores_normalized)[:5]
-            for idx, ev_idx in enumerate(top_5_indices):
-                # Ghi đầy đủ evidence, không truncate
-                log_callback(f"      [{idx+1}] Score: {scores_normalized[ev_idx]:.4f} - {evidence_pieces[ev_idx]}")
+            log_callback(f"   → Normalized scores range: [{cross_scores_normalized.min():.4f}, {cross_scores_normalized.max():.4f}]")
+            log_callback(f"   → Top 5 evidence scores (CrossEncoder):")
+            top_5_cross_indices = np.argsort(-cross_scores_normalized)[:5]
+            for idx, cross_idx in enumerate(top_5_cross_indices):
+                orig_idx = top_bi_indices[cross_idx]
+                log_callback(f"      [{idx+1}] Score: {cross_scores_normalized[cross_idx]:.4f} - {evidence_pieces[orig_idx]}")
         
         # Lọc evidence có relevance > threshold
         # NHƯNG: luôn giữ lại ít nhất top 1 evidence nếu có
         filtered_evidence = []
         filtered_scores = []
         
-        # Tìm top evidence indices và điều chỉnh threshold
+        # Tìm top evidence indices và điều chỉnh threshold (dựa trên CrossEncoder scores)
         adjusted_threshold = relevance_threshold
-        top_indices = []
+        top_cross_indices = list(np.argsort(-cross_scores_normalized))  # Sorted by CrossEncoder scores
         
-        if len(scores_normalized) > 0:
-            top_indices = list(np.argsort(-scores_normalized))  # Descending order
-            if len(top_indices) > 0:
-                top_score = scores_normalized[top_indices[0]]
-                # Nếu top score > 0.5 nhưng dưới threshold, giảm threshold một chút
-                if top_score > 0.5 and top_score < relevance_threshold:
-                    adjusted_threshold = min(relevance_threshold, top_score * 0.8)
-                    if log_callback:
-                        log_callback(f"\n🔍 BƯỚC 2: Điều chỉnh threshold")
-                        log_callback(f"   → Threshold ban đầu: {relevance_threshold}")
-                        log_callback(f"   → Top score: {top_score:.4f}")
-                        log_callback(f"   → Threshold sau điều chỉnh: {adjusted_threshold:.4f}")
+        if len(top_cross_indices) > 0:
+            top_cross_score = cross_scores_normalized[top_cross_indices[0]]
+            # Nếu top score > 0.5 nhưng dưới threshold, giảm threshold một chút
+            if top_cross_score > 0.5 and top_cross_score < relevance_threshold:
+                adjusted_threshold = min(relevance_threshold, top_cross_score * 0.8)
+                if log_callback:
+                    log_callback(f"\n🔍 BƯỚC 3: Điều chỉnh threshold")
+                    log_callback(f"   → Threshold ban đầu: {relevance_threshold}")
+                    log_callback(f"   → Top score: {top_cross_score:.4f}")
+                    log_callback(f"   → Threshold sau điều chỉnh: {adjusted_threshold:.4f}")
+        
+        # Map top_cross_indices về original indices
+        top_indices = [top_bi_indices[cross_idx] for cross_idx in top_cross_indices]
         
         if log_callback:
-            log_callback(f"\n🔍 BƯỚC 3: Lọc evidence theo threshold ({adjusted_threshold:.4f})")
+            log_callback(f"\n🔍 BƯỚC 4: Lọc evidence theo threshold ({adjusted_threshold:.4f})")
         
-        # Bước 1: Lọc evidence theo threshold
+        # Bước 1: Lọc evidence theo threshold (chỉ xét các evidence đã được pre-filter)
         filtered_indices = set()  # Track indices đã được thêm vào filtered_evidence
-        for i, (ev, score) in enumerate(zip(evidence_pieces, scores_normalized)):
+        for orig_idx in top_bi_indices:
+            score = scores_map[orig_idx]
             if score >= adjusted_threshold:
-                filtered_evidence.append(ev)
-                filtered_scores.append(float(score))
-                filtered_indices.add(i)
+                filtered_evidence.append(evidence_pieces[orig_idx])
+                filtered_scores.append(score)
+                filtered_indices.add(orig_idx)
         
         if log_callback:
-            log_callback(f"   → Số evidence sau khi lọc: {len(filtered_evidence)}/{len(evidence_pieces)}")
+            log_callback(f"   → Số evidence sau khi lọc: {len(filtered_evidence)}/{len(top_bi_evidence)} (từ {len(evidence_pieces)} ban đầu)")
             if len(filtered_evidence) > 0:
                 log_callback(f"   → Evidence được giữ lại:")
                 for idx, (ev, score) in enumerate(zip(filtered_evidence, filtered_scores)):
@@ -1529,24 +1594,25 @@ def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str],
         # Đảm bảo luôn có ít nhất min_keep evidence (hoặc tất cả nếu ít hơn min_keep)
         if len(filtered_evidence) < min_keep and len(top_indices) > 0:
             if log_callback:
-                log_callback(f"\n🔍 BƯỚC 4: Bổ sung evidence để đạt min_keep={min_keep}")
+                log_callback(f"\n🔍 BƯỚC 5: Bổ sung evidence để đạt min_keep={min_keep}")
                 log_callback(f"   → Hiện tại có {len(filtered_evidence)} evidence, cần thêm {min_keep - len(filtered_evidence)}")
             
             # Thêm top evidence chưa có trong filtered_evidence
             added_count = 0
-            for idx in top_indices:
+            for orig_idx in top_indices:
                 if len(filtered_evidence) >= min_keep:
                     break
-                if idx not in filtered_indices:
+                if orig_idx not in filtered_indices:
+                    score = scores_map[orig_idx]
                     # Chỉ thêm nếu score > 0.2 (ngưỡng tối thiểu)
-                    if scores_normalized[idx] > 0.2:
-                        filtered_evidence.append(evidence_pieces[idx])
-                        filtered_scores.append(float(scores_normalized[idx]))
-                        filtered_indices.add(idx)
+                    if score > 0.2:
+                        filtered_evidence.append(evidence_pieces[orig_idx])
+                        filtered_scores.append(score)
+                        filtered_indices.add(orig_idx)
                         added_count += 1
                         if log_callback:
                             # Ghi đầy đủ evidence, không truncate
-                            log_callback(f"      [+] Thêm evidence #{idx} (score: {scores_normalized[idx]:.4f}) - {evidence_pieces[idx]}")
+                            log_callback(f"      [+] Thêm evidence #{orig_idx} (score: {score:.4f}) - {evidence_pieces[orig_idx]}")
             
             if log_callback:
                 log_callback(f"   → Đã thêm {added_count} evidence")
@@ -1554,7 +1620,7 @@ def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str],
         # Bước 3: Sắp xếp lại theo score (descending) để đảm bảo top evidence ở đầu
         if filtered_evidence and len(filtered_evidence) > 1:
             if log_callback:
-                log_callback(f"\n🔍 BƯỚC 5: Sắp xếp lại evidence theo score (descending)")
+                log_callback(f"\n🔍 BƯỚC 6: Sắp xếp lại evidence theo score (descending)")
             
             # Tạo list of tuples (score, evidence) để sort
             evidence_score_pairs = list(zip(filtered_scores, filtered_evidence))
@@ -1564,6 +1630,7 @@ def filter_evidence_by_relevance(claim: str, evidence_pieces: List[str],
         
         if log_callback:
             log_callback(f"\n✅ KẾT QUẢ: Đã chọn {len(filtered_evidence)} evidence từ {len(evidence_pieces)} evidence ban đầu")
+            log_callback(f"   → Đã pre-filter {len(top_bi_evidence)} evidence bằng Bi-encoder, sau đó dùng CrossEncoder")
             if len(filtered_evidence) > 0:
                 log_callback(f"   → Score range: [{min(filtered_scores):.4f}, {max(filtered_scores):.4f}]")
         
@@ -1686,19 +1753,41 @@ def _llm_judge_with_evidence(claim: str, evidence_pieces: List[str], top_k: int 
     evidence_block = "\n".join(evidence_block_lines)
 
     prompt = f"""Phân loại YÊU CẦU dựa trên BẰNG CHỨNG thành 1 trong NHÃN. Trả về JSON.
+
 NHÃN:
 Supported
 - Dùng khi có bằng chứng E[i] rõ ràng, trực tiếp ỦNG HỘ yêu cầu.
-- Nếu yêu cầu có nhiều khía cạnh, TẤT CẢ các khía cạnh phải được ỦNG HỘ để chọn phán quyết này.
+- Nếu yêu cầu có nhiều khía cạnh, TẤT CẢ các khía cạnh CỐT LÕI phải được ỦNG HỘ để chọn phán quyết này.
+- LƯU Ý: Chỉ cần bằng chứng hỗ trợ CỐT LÕI của yêu cầu, không cần phải khớp 100% từng từ.
+- LƯU Ý: Nếu bằng chứng xác nhận Ý NGHĨA của yêu cầu (dù dùng từ khác) thì vẫn coi là Supported.
+- VỀ THỜI GIAN/TIẾN TRÌNH: 
+  * Nếu yêu cầu nói "đã được quyết định" nhưng bằng chứng nói "đã đề nghị/đã tờ trình", hãy kiểm tra kỹ:
+    - Nếu bằng chứng CŨNG nói về "Quyết định số...", "được bổ sung vào...", "xếp hạng...", "công nhận..." → coi là đã được quyết định → Supported
+    - Nếu bằng chứng CHỈ nói "tờ trình đề nghị" mà KHÔNG có thông tin về quyết định sau đó → Not Enough Evidence
+  * Quy trình: "đề nghị" → "thông qua" → "quyết định" là bình thường. Nếu bằng chứng nói về quyết định hoặc kết quả cuối cùng, coi là Supported.
 
 Refuted
 - Dùng khi có bằng chứng E[i] rõ ràng BÁC BỎ hoặc MÂU THUẪN trực tiếp với yêu cầu.
-- Nếu yêu cầu có nhiều khía cạnh, dù chỉ 1 khía cạnh bị BÁC BỎ trong khi các khía cạnh còn lại được ủng hộ cũng đủ để chọn phán quyết này.
+- Ví dụ: Yêu cầu nói "A là B" nhưng bằng chứng nói "A không phải là B" hoặc "A là C" (không phải B).
+- Nếu yêu cầu có nhiều khía cạnh, dù chỉ 1 khía cạnh CỐT LÕI bị BÁC BỎ thì cũng đủ để chọn phán quyết này.
+- LƯU Ý: KHÔNG chọn Refuted nếu bằng chứng chỉ KHÔNG NHẮC ĐẾN một số chi tiết phụ trong yêu cầu. Chỉ chọn khi có mâu thuẫn trực tiếp.
+- LƯU Ý: KHÔNG chọn Refuted chỉ vì bằng chứng dùng từ khác nhưng ý nghĩa giống nhau.
 
 Not Enough Evidence
 - Dùng khi tất cả E[i] KHÔNG ĐỦ thông tin để xác nhận hoặc bác bỏ yêu cầu.
-- Cũng dùng nếu yêu cầu quá MƠ HỒ hoặc không thể kiểm chứng bằng dữ liệu hiện có.
-- Nếu yêu cầu có nhiều khía cạnh, chỉ cần 1 khía cạnh không đủ bằng chứng để chọn phán quyết này.
+- Dùng khi bằng chứng không liên quan hoặc quá mơ hồ.
+- Dùng nếu yêu cầu quá MƠ HỒ hoặc không thể kiểm chứng bằng dữ liệu hiện có.
+- LƯU Ý: KHÔNG chọn Not Enough Evidence nếu bằng chứng đã hỗ trợ CỐT LÕI của yêu cầu, chỉ thiếu một số chi tiết phụ.
+
+QUAN TRỌNG:
+1. Tập trung vào CỐT LÕI của yêu cầu, không yêu cầu khớp 100% từng từ.
+2. Hiểu Ý NGHĨA của yêu cầu, không chỉ tìm cụm từ chính xác.
+3. Về THỜI GIAN/TIẾN TRÌNH: 
+   - Nếu yêu cầu nói "đã được X" và bằng chứng nói về quyết định/kết quả liên quan đến X → Supported
+   - Nếu bằng chứng nói về cả "đề nghị" VÀ "quyết định/kết quả" → Supported (quyết định là kết quả cuối)
+   - Nếu bằng chứng CHỈ nói về "đề nghị" mà không có thông tin về kết quả → Not Enough Evidence
+4. Nếu bằng chứng hỗ trợ phần lớn yêu cầu, chỉ thiếu một số chi tiết phụ, vẫn chọn Supported.
+5. Đọc KỸ toàn bộ bằng chứng: một bằng chứng có thể chứa cả "đề nghị" và "quyết định" ở các phần khác nhau.
 
 ĐỊNH DẠNG (bắt buộc JSON, không có text khác):
 {{
@@ -1728,7 +1817,7 @@ JSON:
             raw = llm.prompt_ollama(prompt, think=False, use_judge_model=True)
     except Exception as e:
         # Nếu LLM lỗi, fallback an toàn
-        justification = f"Lỗi khi gọi LLM judge: {e}. Mặc định Not Enough Evidence."
+        justification = f"Lỗi khi gọi LLM judge: {e}.Initial Action Execution:Initial Action Execution: Mặc định Not Enough Evidence."
         verdict_string = f"### Justification:\n{justification}\n\n### Verdict:\n`Not Enough Evidence`"
         return verdict_string, evidence_info
 
@@ -1849,7 +1938,7 @@ def judge(record, decision_options, rules="", think=True,
         filter_log_lines.append(msg)
         print(f"[EVIDENCE_FILTER] {msg}")
     
-    # Dùng top_k=6 để có đủ bằng chứng để đánh giá, nhưng vẫn tập trung vào bằng chứng liên quan nhất
+    # Dùng top_k=2 để tăng tốc độ judge (giảm từ 3 xuống 2)
     verdict_string, evidence_info = _llm_judge_with_evidence(claim, evidence_pieces, top_k=3, log_callback=filter_log_callback)
     
     # Ghi log vào evidence_info để có thể append vào report sau

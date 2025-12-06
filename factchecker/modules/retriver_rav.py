@@ -29,7 +29,11 @@ def scrape_text(url):
     except:
         return ""
 
-def chunk_text(text, chunk_size=50):
+def chunk_text(text, chunk_size=60):
+    """
+    Chunk text thành các đoạn nhỏ.
+    Tăng chunk_size từ 50 lên 60 để giảm số chunks, tăng tốc độ xử lý.
+    """
     sentences = sent_tokenize(text)
     chunks = []
     current_chunk = ""
@@ -89,21 +93,26 @@ def preload_models():
         print(f"Warning: Failed to pre-load cross-encoder model: {e}")
 
 
-def get_top_evidence(claim, text, top_k_chunks=None, p=10, q=3, log_callback=None):
+def get_top_evidence(claim, text, top_k_chunks=None, p=6, q=2, log_callback=None, return_score=False):
     """
     RAV (Retrieval-Augmented Verification) để lấy top evidence từ text.
+    Tối ưu tốc độ: giảm p từ 10 xuống 6 và q từ 3 xuống 2 để xử lý ít chunks hơn với CrossEncoder.
     
     Args:
         claim: Câu claim cần fact-check
         text: Text cần tìm evidence
         top_k_chunks: (Deprecated) Giữ để backward compatibility. Nếu được set, dùng cho cả p và q.
-        p: Số lượng top candidates từ bi-encoder (default: 10)
-        q: Số lượng top candidates từ cross-encoder sau khi re-rank (default: 1)
+        p: Số lượng top candidates từ bi-encoder (default: 6, giảm từ 10 để tăng tốc)
+        q: Số lượng top candidates từ cross-encoder sau khi re-rank (default: 2, giảm từ 3 để tăng tốc)
         log_callback: Hàm callback để log các bước (optional)
+        return_score: Nếu True, trả về tuple (summary, max_score) với max_score là cross-encoder score cao nhất
     
     Returns:
-        Nếu q=1: str - best chunk
-        Nếu q>1: str - các chunks được join lại
+        Nếu return_score=False:
+            - Nếu q=1: str - best chunk
+            - Nếu q>1: str - các chunks được join lại
+        Nếu return_score=True:
+            - tuple: (summary_str, max_score_float)
     """
     if log_callback:
         log_callback("🔍 BƯỚC 1: Chunking text thành các đoạn nhỏ")
@@ -118,6 +127,8 @@ def get_top_evidence(claim, text, top_k_chunks=None, p=10, q=3, log_callback=Non
     if not all_chunks:
         if log_callback:
             log_callback("   ⚠️ Không tìm thấy chunks nào!")
+        if return_score:
+            return "No evidence found.", 0.0
         return "No evidence found."
     
     # Backward compatibility: nếu top_k_chunks được set, dùng cho cả p và q
@@ -177,7 +188,21 @@ def get_top_evidence(claim, text, top_k_chunks=None, p=10, q=3, log_callback=Non
     
     # Trả về kết quả
     if q == 1:
-        return top_q_chunks[0]
+        summary = top_q_chunks[0]
     else:
         # Join các chunks lại với nhau
-        return " ".join(top_q_chunks)
+        summary = " ".join(top_q_chunks)
+    
+    if return_score:
+        # Tính relevance score: dùng max bi-encoder score (cosine similarity) đã normalize [0, 1]
+        # Bi-encoder score đã normalize: cosine similarity [-1, 1] -> [0, 1]
+        max_bi_score = max(top_p_scores) if top_p_scores else 0.0
+        # Cosine similarity đã normalize về [0, 1] trong code trên
+        # Nhưng thực tế cos_sims là [-1, 1], cần normalize thêm
+        max_relevance_score = (max_bi_score + 1.0) / 2.0  # Normalize từ [-1, 1] về [0, 1]
+        
+        if log_callback:
+            log_callback(f"   → Max relevance score (bi-encoder, normalized): {max_relevance_score:.4f}")
+        
+        return summary, max_relevance_score
+    return summary

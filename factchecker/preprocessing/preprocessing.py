@@ -140,7 +140,44 @@ class VietnameseSegmenter:
     def segment(self, text):
         processed = self.preprocess(text)
         tokens = self.max_match(processed)
-        return ' '.join(self.postprocess(tokens))
+        postprocessed = self.postprocess(tokens)
+        
+        result = []
+        current_word_parts = []
+        
+        for token in postprocessed:
+            # Kiểm tra xem token có phải là ký tự đơn (1-2 ký tự, không phải số/dấu câu)
+            is_single_char = (
+                len(token) <= 2 
+                and re.match(r'^[a-zA-ZÀ-Ỵà-ỵđĐ]', token)
+                and not re.match(r'^\d+$', token)
+                and token not in ",.!?;:()"
+            )
+            
+            # Kiểm tra xem có phải số, dấu câu, hoặc từ dài
+            is_number = re.match(r'^\d+[.,]?\d*$', token)
+            is_punctuation = token in ",.!?;:()"
+            is_word = len(token) > 2 or (is_number and not is_single_char)
+            
+            if is_single_char:
+                # Thêm vào từ hiện tại đang tích lũy
+                current_word_parts.append(token)
+            else:
+                # Nếu có từ đang tích lũy, gộp lại trước
+                if current_word_parts:
+                    merged_word = ''.join(current_word_parts)
+                    result.append(merged_word)
+                    current_word_parts = []
+                
+                # Thêm token bình thường
+                result.append(token)
+        
+        # Gộp phần còn lại
+        if current_word_parts:
+            merged_word = ''.join(current_word_parts)
+            result.append(merged_word)
+        
+        return ' '.join(result)
 
 #=========================KHÔI PHỤC DẤU TIẾNG VIỆT=========================
 import torch
@@ -152,9 +189,6 @@ from transformers import AutoTokenizer, AutoModelForTokenClassification
 
 TAG_URL = "https://huggingface.co/peterhung/vietnamese-accent-marker-xlm-roberta/resolve/main/selected_tags_names.txt"
 TAG_PATH = "selected_tags_names.txt"
-
-if not os.path.exists(TAG_PATH):
-    urllib.request.urlretrieve(TAG_URL, TAG_PATH)
 
 # ------------------- Lazy load model & tokenizer with caching -------------------
 _tokenizer_cache = None
@@ -181,6 +215,8 @@ def _get_label_list():
     """Get label list with caching."""
     global _label_list_cache
     if _label_list_cache is None:
+        if not os.path.exists(TAG_PATH):
+            urllib.request.urlretrieve(TAG_URL, TAG_PATH)
         with open(TAG_PATH, 'r', encoding='utf-8') as f:
             _label_list_cache = [line.strip() for line in f if line.strip()]
     return _label_list_cache
@@ -193,6 +229,7 @@ def preload_accent_model():
         print("✓ Accent restoration model pre-loaded")
     except Exception as e:
         print(f"Warning: Failed to pre-load accent restoration model: {e}")
+
 # ------------------- Hàm chính: phục hồi dấu tiếng Việt -------------------
 def restore_vietnamese_accents(text: str) -> str:
     """
@@ -265,6 +302,88 @@ def remove_noise(text: str) -> str:
     text = re.sub(r'[^a-zA-ZÀ-Ỵà-ỵđĐ0-9\s\.,!?;:()%/-]', ' ', text)
     return re.sub(r'\s+', ' ', text).strip()
 
+# ====================== FIX TEXT BỊ TÁCH THÀNH TỪNG KÝ TỰ ======================
+def fix_character_spacing(text: str) -> str:
+    """
+    Sửa lỗi text bị tách thành từng ký tự với khoảng trắng.
+    Ví dụ: "v ớ i q u y m ô đ ầ u t ư" -> "với quy mô đầu tư"
+    
+    Logic:
+    - Phát hiện pattern: nhiều ký tự đơn lẻ (1-2 ký tự) liên tiếp cách nhau bởi khoảng trắng
+    - Gộp lại thành từ hoàn chỉnh
+    - Giữ nguyên số, dấu câu, và khoảng trắng hợp lý
+    """
+    if not text or not text.strip():
+        return text
+    
+    # Split text thành các từ (giữ nguyên dấu câu)
+    words = text.split()
+    if len(words) <= 1:
+        return text
+    
+    # Kiểm tra xem có phải text bị tách thành từng ký tự không
+    # Đếm số từ là ký tự đơn (chữ cái hoặc dấu) liên tiếp
+    single_char_count = 0
+    consecutive_single_chars = 0
+    max_consecutive = 0
+    
+    for word in words:
+        # Ký tự đơn: chỉ có 1-2 ký tự, bắt đầu bằng chữ cái/dấu tiếng Việt
+        # Loại trừ số và dấu câu thuần túy
+        is_single_char = (
+            len(word) <= 2 
+            and re.match(r'^[a-zA-ZÀ-Ỵà-ỵđĐ]', word)
+            and not re.match(r'^\d+$', word)  # Không phải số thuần
+        )
+        
+        if is_single_char:
+            single_char_count += 1
+            consecutive_single_chars += 1
+            max_consecutive = max(max_consecutive, consecutive_single_chars)
+        else:
+            consecutive_single_chars = 0
+    
+    # Nếu có ít nhất 3 ký tự đơn liên tiếp HOẶC > 30% từ là ký tự đơn
+    # → Coi như text bị tách thành từng ký tự
+    if max_consecutive < 3 and single_char_count < len(words) * 0.3:
+        return text  # Không phải text bị tách, giữ nguyên
+    
+    # Gộp lại các ký tự liền nhau thành từ
+    result = []
+    current_word_parts = []
+    
+    for word in words:
+        # Kiểm tra xem có phải ký tự đơn không (chữ cái hoặc dấu)
+        is_single_char = (
+            len(word) <= 2 
+            and re.match(r'^[a-zA-ZÀ-Ỵà-ỵđĐ]', word)
+            and not re.match(r'^\d+$', word)  # Không phải số thuần
+        )
+        
+        # Kiểm tra xem có phải số, dấu câu, hoặc từ dài hơn 2 ký tự
+        is_number = re.match(r'^\d+[.,]?\d*$', word)
+        is_punctuation = re.match(r'^[.,!?;:()]+$', word)
+        
+        if is_single_char and not is_number and not is_punctuation:
+            # Thêm vào từ hiện tại đang tích lũy
+            current_word_parts.append(word)
+        else:
+            # Nếu có từ đang tích lũy, gộp lại trước
+            if current_word_parts:
+                merged = ''.join(current_word_parts)
+                result.append(merged)
+                current_word_parts = []
+            
+            # Thêm từ/số/dấu câu bình thường
+            result.append(word)
+    
+    # Gộp phần còn lại
+    if current_word_parts:
+        merged = ''.join(current_word_parts)
+        result.append(merged)
+    
+    return ' '.join(result)
+
   # ====================== HÀM CHÍNH ======================
 def preprocess(text: str, use_accent_restorer: bool = True) -> str:
     """
@@ -274,6 +393,10 @@ def preprocess(text: str, use_accent_restorer: bool = True) -> str:
     """
     if not text or not text.strip():
         return ""
+
+    # Bước 0: Fix text bị tách thành từng ký tự (phải làm TRƯỚC tất cả)
+    # Nếu text có pattern như "v ớ i q u y m ô" -> gộp lại thành "với quy mô"
+    text = fix_character_spacing(text)
 
     # Bước 1: Luôn luôn xóa noise + chuẩn hóa
     text = remove_noise(text)
@@ -285,7 +408,10 @@ def preprocess(text: str, use_accent_restorer: bool = True) -> str:
     # Bước 3: Chọn 1 trong 2 chiến lược
     if is_ocr_dirty:
         # Cách 1: Dính chữ → tách trước, rồi phục hồi dấu
-        segmenter = VietnameseSegmenter('/content/ClaimCheck/factchecker/preprocessing/vn_dict.txt')
+        # Sử dụng path tương đối từ thư mục hiện tại
+        import os
+        dict_path = os.path.join(os.path.dirname(__file__), 'vn_dict.txt')
+        segmenter = VietnameseSegmenter(dict_path)
         text = segmenter.segment(text)
     else:
         # Cách 2: Đã sạch → không cần tách

@@ -53,7 +53,7 @@ class TimerTracker:
 
 
 class FactChecker:
-    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=3, model_name=None):
+    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=3, model_name=None, enable_evidence_synthesis=None):
         self.claim = claim
         self.date = date
         self.multimodal = multimodal if not (multimodal and image_path is None) else False
@@ -82,6 +82,12 @@ class FactChecker:
             "timings": []
         }
         self.max_actions = max_actions
+        # Evidence Synthesis flag: read from env var if not provided, default to False (disabled)
+        if enable_evidence_synthesis is None:
+            enable_evidence_synthesis = os.getenv("ENABLE_EVIDENCE_SYNTHESIS", "false").lower() in ("true", "1", "yes")
+        self.enable_evidence_synthesis = enable_evidence_synthesis
+        if not self.enable_evidence_synthesis:
+            print("⚠️  Evidence Synthesis is DISABLED (for faster processing)")
         self._report_lock = Lock()
         max_workers = min(8, (os.cpu_count() or 4))
         self._result_executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
@@ -203,14 +209,14 @@ class FactChecker:
                     web_search_logs = []
                     report_writer.log_step(
                         "Web Search - Input",
-                        {"Query": query, "Date": self.date, "Top_k": 5},
+                        {"Query": query, "Date": self.date, "Top_k": 3},
                         web_search_logs
                     )
                     
                     with self._report_lock:
                         self.report["actions"][identifier] = action_entry
                     with self._timers.track(f"web_search:{query}"):
-                        urls, snippets = web_search.web_search(query, self.date, top_k=5)
+                        urls, snippets = web_search.web_search(query, self.date, top_k=3)
                     
                     report_writer.log_step(
                         "Web Search - Output",
@@ -230,14 +236,18 @@ class FactChecker:
                     with self._report_lock:
                         self.report["actions"][identifier]["results"] = results_payload
 
-                    def process_result(result):
+                    # Process URLs sequentially to check scores and skip URL #3 if needed
+                    evidence_scores = []  # Track scores from processed URLs
+                    EVIDENCE_SCORE_THRESHOLD = 0.8  # Skip URL #3 if first 2 URLs have score > this threshold
+                    
+                    def process_result(result, url_index):
                         domain = urlparse(result).netloc.lower()
                         
                         # Log web scraping step
                         scraping_logs = []
                         report_writer.log_step(
                             "Web Scraping - Input",
-                            {"URL": result, "Domain": domain},
+                            {"URL": result, "Domain": domain, "URL index": url_index + 1},
                             scraping_logs
                         )
                         
@@ -249,7 +259,7 @@ class FactChecker:
                             )
                             report_writer.append_pipeline_log(f"BƯỚC 3: WEB SCRAPING - {result}", scraping_logs)
                             print(f"Skipping unsupported domain: {result}")
-                            return None
+                            return None, 0.0
 
                         with self._timers.track(f"scrape:{domain}"):
                             scraped_content = web_scraper.scrape_url_content(result)
@@ -261,7 +271,7 @@ class FactChecker:
                             )
                             report_writer.append_pipeline_log(f"BƯỚC 3: WEB SCRAPING - {result}", scraping_logs)
                             print(f"Skipping empty scrape for: {result}")
-                            return None
+                            return None, 0.0
                         
                         report_writer.log_step(
                             "Web Scraping - Output",
@@ -280,10 +290,11 @@ class FactChecker:
                             print(f"[RAV] {msg}")
                         
                         with self._timers.track(f"evidence_rank:{domain}"):
-                            summary = retriver_rav.get_top_evidence(
+                            summary, relevance_score = retriver_rav.get_top_evidence(
                                 self.claim, 
                                 scraped_content,
-                                log_callback=rav_log_callback
+                                log_callback=rav_log_callback,
+                                return_score=True
                             )
                             
                             # Ghi log RAV vào report với format chuẩn
@@ -292,17 +303,50 @@ class FactChecker:
 
                         if "NONE" in summary:
                             print(f"Skipping summary for evidence: {result}")
-                            return None
+                            return None, 0.0
 
-                        print(f"Web search result: {result}, Summmary: {summary}")
+                        print(f"Web search result: {result}, Summary: {summary}, Relevance score: {relevance_score:.4f}")
                         report_writer.append_raw(f"web_search('{query}') results: {result}")
                         report_writer.append_evidence(f"web_search('{query}') Summary: {summary}")
 
                         with self._report_lock:
                             if result in self.report["actions"][identifier]["results"]:
                                 self.report["actions"][identifier]["results"][result]["summary"] = summary
+                        
+                        return summary, relevance_score
 
-                    list(self._result_executor.map(process_result, urls))
+                    # Process URLs sequentially to enable skipping URL #3
+                    url_scores = {}  # Track score for each URL by index
+                    for url_index, url in enumerate(urls):
+                        # Check if we should skip URL #3 (index 2)
+                        if url_index == 2:
+                            # Only skip if URL #1 (index 0) and URL #2 (index 1) were both processed successfully
+                            # and both have good evidence (score > threshold)
+                            url1_score = url_scores.get(0, 0.0)
+                            url2_score = url_scores.get(1, 0.0)
+                            
+                            if url1_score > EVIDENCE_SCORE_THRESHOLD and url2_score > EVIDENCE_SCORE_THRESHOLD:
+                                skip_logs = []
+                                report_writer.log_step(
+                                    "Web Scraping - Skipped (Optimization)",
+                                    {
+                                        "URL": url,
+                                        "Reason": f"URL #1 and URL #2 already have good evidence (scores: {url1_score:.4f}, {url2_score:.4f})",
+                                        "Threshold": EVIDENCE_SCORE_THRESHOLD
+                                    },
+                                    skip_logs
+                                )
+                                report_writer.append_pipeline_log(f"BƯỚC 3: WEB SCRAPING - {url} (SKIPPED - OPTIMIZATION)", skip_logs)
+                                print(f"⏭️  Skipping URL #{url_index + 1} ({url}) - URLs #1 and #2 already have good evidence (scores: {url1_score:.4f}, {url2_score:.4f}, threshold: {EVIDENCE_SCORE_THRESHOLD})")
+                                continue
+                        
+                        summary, score = process_result(url, url_index)
+                        if summary is not None:
+                            evidence_scores.append((summary, score))
+                            url_scores[url_index] = score
+                        else:
+                            url_scores[url_index] = 0.0  # Mark as failed/skipped
+                    
                     self.save_report_json()
                 else:
                     return
@@ -376,87 +420,106 @@ class FactChecker:
                 iterations = 0
                 seen_action_lines = set(action_lines)
                 action_needed_conclusion = None
-                while iterations <= 1:
-                    # Log evidence synthesis step
+                
+                # Skip Evidence Synthesis if disabled
+                if not self.enable_evidence_synthesis:
+                    print("⏭️  Skipping Evidence Synthesis (disabled)")
                     synthesis_logs = []
                     report_writer.log_step(
-                        f"Evidence Synthesis - Iteration {iterations + 1}",
+                        "Evidence Synthesis - Skipped",
                         {
-                            "Input": "Current record with evidence",
-                            "Max chars": 3000
+                            "Reason": "Evidence Synthesis is disabled",
+                            "Configuration": "Set ENABLE_EVIDENCE_SYNTHESIS=true to enable"
                         },
                         synthesis_logs
                     )
-                    
-                    with self._timers.track(f"action_needed_iter_{iterations+1}"):
-                        # Use smaller trimmed record for faster processing
-                        action_needed = evidence_synthesis.develop(record=self.get_trimmed_record(max_chars=3000), think=False)
-
-                    report_writer.log_step(
-                        "Evidence Synthesis - Output",
-                        {
-                            "Action needed": action_needed,
-                            "Conclusion": "SUFFICIENT" if ('đã đủ bằng chứng' in action_needed.lower() or 'đủ bằng chứng' in action_needed.lower()) else "NEED_MORE"
-                        },
-                        synthesis_logs
-                    )
-                    
-                    # Append synthesis log to report
-                    report_writer.append_pipeline_log(f"BƯỚC 5: EVIDENCE SYNTHESIS - Iteration {iterations + 1}", synthesis_logs)
-                    
-                    print(f"Developed action_needed:\n{action_needed}")
-                    report_writer.append_action_needed(action_needed)
-
+                    report_writer.append_pipeline_log("BƯỚC 5: EVIDENCE SYNTHESIS - SKIPPED", synthesis_logs)
                     with self._report_lock:
-                        self.report["action_needed"].append(action_needed)
+                        self.report["action_needed"].append("SKIPPED (disabled)")
                     self.save_report_json()
+                else:
+                    # Evidence Synthesis is enabled
+                    while iterations <= 1:
+                        # Log evidence synthesis step
+                        synthesis_logs = []
+                        report_writer.log_step(
+                            f"Evidence Synthesis - Iteration {iterations + 1}",
+                            {
+                                "Input": "Current record with evidence",
+                                "Max chars": 3000
+                            },
+                            synthesis_logs
+                        )
+                        
+                        with self._timers.track(f"action_needed_iter_{iterations+1}"):
+                            # Use smaller trimmed record for faster processing
+                            action_needed = evidence_synthesis.develop(record=self.get_trimmed_record(max_chars=3000), think=False)
 
-                    # Check if action_needed already concluded we have enough evidence
-                    action_needed_lower = action_needed.lower()
-                    if 'đã đủ bằng chứng' in action_needed_lower or 'đủ bằng chứng' in action_needed_lower:
-                        action_needed_conclusion = "SUFFICIENT"
-                        print("[action_needed] Early exit: Sufficient evidence found")
-                        break
+                        report_writer.log_step(
+                            "Evidence Synthesis - Output",
+                            {
+                                "Action needed": action_needed,
+                                "Conclusion": "SUFFICIENT" if ('đã đủ bằng chứng' in action_needed.lower() or 'đủ bằng chứng' in action_needed.lower()) else "NEED_MORE"
+                            },
+                            synthesis_logs
+                        )
+                        
+                        # Append synthesis log to report
+                        report_writer.append_pipeline_log(f"BƯỚC 5: EVIDENCE SYNTHESIS - Iteration {iterations + 1}", synthesis_logs)
+                        
+                        print(f"Developed action_needed:\n{action_needed}")
+                        report_writer.append_action_needed(action_needed)
 
-                    action_needed_action_lines = [x.strip() for x in action_needed.split('\n')]
-                    # Extract actions from format "TÌM KIẾM: <query>" (from dev-knhung)
-                    extracted_actions = []
-                    for line in action_needed_action_lines:
-                        if line.lower() == 'none':
-                            extracted_actions.append('NONE')
-                        elif 'TÌM KIẾM:' in line:
-                            # Find the position of "TÌM KIẾM:" and extract query after it
-                            idx = line.find('TÌM KIẾM:')
-                            if idx != -1:
-                                query = line[idx + len('TÌM KIẾM:'):].strip()
-                                extracted_actions.append("web_search(\"" + query + "\")")
-                    
-                    # Also check for standard action format (from HEAD)
-                    if not extracted_actions:
-                        action_needed_action_lines = [
-                            line for line in action_needed_action_lines if re.match(r'((\w+)_search\("([^"]+)"\)|NONE)', line, re.IGNORECASE)
-                        ]
-                    else:
-                        action_needed_action_lines = extracted_actions
+                        with self._report_lock:
+                            self.report["action_needed"].append(action_needed)
+                        self.save_report_json()
 
-                    print(f"Extracted action_needed action lines: {action_needed_action_lines}")
+                        # Check if action_needed already concluded we have enough evidence
+                        action_needed_lower = action_needed.lower()
+                        if 'đã đủ bằng chứng' in action_needed_lower or 'đủ bằng chứng' in action_needed_lower:
+                            action_needed_conclusion = "SUFFICIENT"
+                            print("[action_needed] Early exit: Sufficient evidence found")
+                            break
 
-                    if not action_needed_action_lines or (
-                        len(action_needed_action_lines) == 1 and action_needed_action_lines[0].strip().lower() == 'none'
-                    ):
-                        break
+                        action_needed_action_lines = [x.strip() for x in action_needed.split('\n')]
+                        # Extract actions from format "TÌM KIẾM: <query>" (from dev-knhung)
+                        extracted_actions = []
+                        for line in action_needed_action_lines:
+                            if line.lower() == 'none':
+                                extracted_actions.append('NONE')
+                            elif 'TÌM KIẾM:' in line:
+                                # Find the position of "TÌM KIẾM:" and extract query after it
+                                idx = line.find('TÌM KIẾM:')
+                                if idx != -1:
+                                    query = line[idx + len('TÌM KIẾM:'):].strip()
+                                    extracted_actions.append("web_search(\"" + query + "\")")
+                        
+                        # Also check for standard action format (from HEAD)
+                        if not extracted_actions:
+                            action_needed_action_lines = [
+                                line for line in action_needed_action_lines if re.match(r'((\w+)_search\("([^"]+)"\)|NONE)', line, re.IGNORECASE)
+                            ]
+                        else:
+                            action_needed_action_lines = extracted_actions
 
-                    if any(line in seen_action_lines for line in action_needed_action_lines):
-                        print('Duplicate action line detected. Stopping iterations.')
-                        break
+                        print(f"Extracted action_needed action lines: {action_needed_action_lines}")
 
-                    seen_action_lines.update(action_needed_action_lines)
+                        if not action_needed_action_lines or (
+                            len(action_needed_action_lines) == 1 and action_needed_action_lines[0].strip().lower() == 'none'
+                        ):
+                            break
 
-                    with self._timers.track(f"action_needed_action_exec_{iterations+1}"):
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
-                            list(executor.map(self.process_action_line, action_needed_action_lines))
+                        if any(line in seen_action_lines for line in action_needed_action_lines):
+                            print('Duplicate action line detected. Stopping iterations.')
+                            break
 
-                    iterations += 1
+                        seen_action_lines.update(action_needed_action_lines)
+
+                        with self._timers.track(f"action_needed_action_exec_{iterations+1}"):
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                list(executor.map(self.process_action_line, action_needed_action_lines))
+
+                        iterations += 1
 
                 allowed_verdicts = {"Supported", "Refuted", "Not Enough Evidence"}
                 max_judge_tries = 3
@@ -607,7 +670,7 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None, model_name=None):
-    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name)
+def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None, model_name=None, enable_evidence_synthesis=None):
+    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name, enable_evidence_synthesis=enable_evidence_synthesis)
     verdict, report_path = checker.run()
     return verdict, report_path

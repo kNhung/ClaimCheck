@@ -94,5 +94,19 @@ def prompt_gemini(prompt, model=None, api_key=None):
     # Generate response
     response = gemini_model.generate_content(prompt)
     
+    # Track token usage từ Gemini API response
+    if hasattr(response, 'usage_metadata') and response.usage_metadata:
+        usage = response.usage_metadata
+        prompt_tokens = getattr(usage, 'prompt_token_count', 0)
+        completion_tokens = getattr(usage, 'candidates_token_count', 0) or getattr(usage, 'completion_token_count', 0)
+        total_tokens = getattr(usage, 'total_token_count', prompt_tokens + completion_tokens)
+        
+        print(f"[GEMINI TOKEN USAGE] Model: {model}")
+        print(f"[GEMINI TOKEN USAGE] Prompt tokens: {prompt_tokens}")
+        print(f"[GEMINI TOKEN USAGE] Completion tokens: {completion_tokens}")
+        print(f"[GEMINI TOKEN USAGE] Total tokens: {total_tokens}")
+    else:
+        print(f"[GEMINI TOKEN USAGE] ⚠️  Token usage metadata not available in response")
+    
     return response.text
 
