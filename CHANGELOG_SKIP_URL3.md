@@ -190,3 +190,4 @@ URL 3: ⏭️ Vẫn xử lý (vì chỉ có 1 URL tốt)
 - **Sequential processing:** URLs giờ được xử lý tuần tự thay vì song song để có thể check scores
 - **Flexible threshold:** Có thể điều chỉnh `EVIDENCE_SCORE_THRESHOLD` nếu cần
 
+

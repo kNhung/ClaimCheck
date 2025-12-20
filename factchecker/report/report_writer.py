@@ -58,8 +58,20 @@ def append_iteration_actions(iteration, actions):
         print(f"Error appending actions: {e}")
 
 def append_evidence(evidence):
+    """Append evidence to report, avoiding duplicates"""
     try:
-        with open(REPORT_PATH, "a") as f:
+        if not evidence or not evidence.strip():
+            return
+        
+        # Check if evidence already exists in report to avoid duplicates
+        if REPORT_PATH and os.path.exists(REPORT_PATH):
+            with open(REPORT_PATH, "r", encoding='utf-8') as f:
+                existing_content = f.read()
+                # Simple check: if evidence text already exists, skip
+                if evidence.strip() in existing_content:
+                    return
+        
+        with open(REPORT_PATH, "a", encoding='utf-8') as f:
             f.write(evidence + "\n\n")
     except Exception as e:
         print(f"Error appending evidence: {e}")

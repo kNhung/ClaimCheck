@@ -10,20 +10,23 @@ from .modules import planning, evidence_synthesis, evaluation, retriver_rav, llm
 from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
+import dotenv
+dotenv.load_dotenv()
+MAX_ACTIONS = int(os.getenv("FACTCHECKER_MAX_ACTIONS", "2"))
 
 RULES_PROMPT = """
-Supported
-- Dùng khi có bằng chứng rõ ràng, trực tiếp và đáng tin cậy ỦNG HỘ yêu cầu.
-- Nếu yêu cầu có nhiều khía cạnh, TẤT CẢ các khía cạnh phải được ỦNG HỘ để chọn phán quyết này.
+Supported (Có căn cứ)
+1. Chỉ chọn khi có bằng chứng rõ ràng, đáng tin cậy và liên hệ trực tiếp với nội dung Claim.
+2. Nếu yêu cầu gồm nhiều luận điểm, TẤT CẢ các luận điểm đều phải được xác nhận là đúng thì mới chọn Supported.
 
-Refuted
-- Dùng khi có bằng chứng rõ ràng BÁC BỎ hoặc MÂU THUẪN trực tiếp với yêu cầu.
-- Nếu yêu cầu có nhiều khía cạnh, dù chỉ 1 khía cạnh bị BÁC BỎ trong khi các khía cạnh còn lại được ủng hộ cũng đủ để chọn phán quyết này.
+Refuted (Bị bác bỏ)
+1. Áp dụng khi bằng chứng đáng tin cậy cho thấy Claim sai, mâu thuẫn hoặc bị bác bỏ trực tiếp.
+2. Nếu Claim có nhiều luận điểm, chỉ cần MỘT luận điểm bị bác bỏ là đủ để kết luận toàn bộ yêu cầu Refuted.
 
-Not Enough Evidence
-- Dùng khi KHÔNG ĐỦ bằng chứng để xác nhận hoặc bác bỏ yêu cầu.
-- Cũng dùng nếu yêu cầu quá MƠ HỒ hoặc không thể kiểm chứng bằng dữ liệu hiện có.
-- Nếu yêu cầu có nhiều khía cạnh, chỉ cần 1 khía cạnh không đủ bằng chứng để chọn phán quyết này.
+Not Enough Evidence (Thiếu bằng chứng)
+1. Dùng khi không có đủ dữ liệu đáng tin cậy để khẳng định đúng/sai.
+2. Áp dụng khi Claim quá mơ hồ, thiếu thông tin, hoặc không thể kiểm chứng với nguồn hiện có.
+3. Với Claim có nhiều luận điểm, chỉ cần MỘT luận điểm thiếu bằng chứng là phải chọn Not Enough Evidence.
 """
 
 LABEL_MAP = {
@@ -64,11 +67,12 @@ class FactChecker:
         self.identifier = identifier
         if model_name:
             llm.set_default_ollama_model(model_name)
-        self.model_name = llm.get_default_ollama_model()
+        self.model_name = model_name or llm.get_default_ollama_model()
         report_writer.init_report(claim, identifier)
         self.report_path = report_writer.REPORT_PATH
         print(f"Initialized report at: {self.report_path}")
         # Initialize the report dict for web use
+        # Limit actions dict size to avoid memory bloat
         self.report = {
             "claim": self.claim,
             "date": self.date,
@@ -81,6 +85,7 @@ class FactChecker:
             "report_path": self.report_path,
             "timings": []
         }
+        self._max_actions_in_memory = 5  # Limit actions stored in memory
         self.max_actions = max_actions
         # Evidence Synthesis flag: read from env var if not provided, default to False (disabled)
         if enable_evidence_synthesis is None:
@@ -195,7 +200,7 @@ class FactChecker:
             if m:
                 action, query = m.groups()
                 action_entry = {
-                    "action": action + "_search",
+                    "action": f"{action}_search",
                     "query": query,
                     "results": None
                 }
@@ -364,6 +369,9 @@ class FactChecker:
                 with self._timers.track("claim_filtering"):
                     original_claim = self.claim
                     self.claim = claim_detection.claim_filter(self.claim)
+                    if self.claim is None or not self.claim.strip():
+                        raise ValueError("Filtered claim is empty")
+                    
                     claim_filtering_logs = []
                     report_writer.log_step(
                         "Claim Filtering",
@@ -671,6 +679,13 @@ class FactChecker:
 # For backward compatibility, provide a function interface
 
 def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None, model_name=None, enable_evidence_synthesis=None):
-    checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name, enable_evidence_synthesis=enable_evidence_synthesis)
-    verdict, report_path = checker.run()
-    return verdict, report_path
+    try:
+        checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name, enable_evidence_synthesis=enable_evidence_synthesis)
+        verdict, report_path = checker.run()
+        return verdict, report_path
+    except Exception as e:
+        error_message = "Lỗi. Hãy nhập 1 câu cần kiểm chứng"
+        print(f"Error in factcheck: {e}")
+        print(error_message)
+        # Raise exception with user-friendly message so frontend can display it
+        raise ValueError(error_message) from e

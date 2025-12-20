@@ -1,24 +1,25 @@
 from .llm import prompt_ollama
 
-summarize_prompt = """HƯỚNG DẪN
-Bạn là trợ lý kiểm chứng thông tin. Nhiệm vụ của bạn là đọc KẾT QUẢ TÌM KIẾM và TÓM TẮT ngắn gọn những thông tin LIÊN QUAN đến YÊU CẦU dưới đây.
+summarize_prompt = """
+Hướng dẫn
+Bạn vừa thực hiện tìm kiếm web để tìm bằng chứng. Nhiệm vụ hiện tại là tóm tắt Kết quả Tìm kiếm một cách ngắn gọn, tối đa 5 câu, chỉ bao gồm thông tin liên quan đến Phát biểu đang kiểm chứng.
+Bao gồm:
+- Thông tin có thể hữu ích cho việc kiểm chứng (xem Record).
+- Nếu có: ngày phát hành, tác giả hoặc nhà xuất bản (ví dụ cơ quan báo chí) của kết quả tìm kiếm.
+Không bao gồm:
+- Quảng cáo, header, footer, sidebar, ... 
+- Bất kỳ thông tin không liên quan đến Record hoặc Claim.
+Quy tắc bổ sung:
+- Không thêm thông tin nào ngoài những gì có trong Kết quả Tìm kiếm. Không thêm thông tin không liên quan đến Claim, dù chúng xuất hiện trong kết quả tìm kiếm.
+- Nếu Kết quả Tìm kiếm không chứa thông tin liên quan cho việc kiểm chứng, chỉ in duy nhất một từ viết HOA: NONE. Không in thêm gì khác.
+- Giữ phong cách viết nhất quán với các Ví dụ.
+- Cố gắng lọc thông tin liên quan ngay cả khi kết quả tìm kiếm ở ngôn ngữ khác.
 
-ĐỊNH NGHĨA:
-"Tóm tắt" có nghĩa là trích ra và diễn đạt lại NGẮN GỌN các thông tin CHÍNH có LIÊN QUAN đến YÊU CẦU, 
-mà không thêm bất kỳ nhận xét, phán đoán, hay thông tin ngoài nội dung gốc.
+Lưu ý kỹ thuật: Từ khóa NONE phải giữ nguyên (không dịch), viết hoa toàn bộ.
 
-MỤC TIÊU:
-- Chỉ chọn các thông tin giúp xác định xem YÊU CẦU là đúng hay sai.
+Claim: {claim}
 
-QUY TẮC:
-- Tóm tắt trong tối đa 5 câu ngắn gọn, tập trung vào phần LIÊN QUAN TRỰC TIẾP đến YÊU CẦU.
-- Nếu phát hiện bằng chứng xác nhận hoặc phủ nhận, phải nêu rõ điều đó trong tóm tắt.
-- Nếu không có thông tin nào liên quan, chỉ in đúng một từ: NONE.
-- KHÔNG thêm nhận xét, phân tích, quảng cáo hoặc nội dung không liên quan đến YÊU CẦU.
-
-YÊU CẦU: {claim}
-
-KẾT QUẢ TÌM KIẾM:
+Evidence:
 {url}
 {search_result}
 

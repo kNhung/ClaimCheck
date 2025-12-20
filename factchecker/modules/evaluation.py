@@ -102,7 +102,11 @@ def _get_bert_model_and_tokenizer(model_name=_BERT_MODEL_NAME, allow_fallback=Tr
     try:
         print(f"Checking for cached BERT model: {model_name}...")
         tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=True)
-        model = AutoModel.from_pretrained(model_name, local_files_only=True)
+        model = AutoModel.from_pretrained(
+            model_name, 
+            local_files_only=True,
+            device_map=None  # Prevent meta device usage
+        )
         model.to(device)
         model.eval()
         print(f"BERT model loaded from cache successfully")
@@ -135,7 +139,8 @@ def _get_bert_model_and_tokenizer(model_name=_BERT_MODEL_NAME, allow_fallback=Tr
         model = AutoModel.from_pretrained(
             model_name,
             local_files_only=False,
-            resume_download=True
+            resume_download=True,
+            device_map=None  # Prevent meta device usage
         )
         
         model.to(device)

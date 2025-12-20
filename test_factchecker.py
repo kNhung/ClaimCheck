@@ -1,4 +1,5 @@
 """Minimal runner for the factchecker with simple wall-clock timing."""
+from env_config import *  # Load environment variables
 import os
 from factchecker.factchecker import factcheck
 
