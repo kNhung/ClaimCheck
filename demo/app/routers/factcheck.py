@@ -6,7 +6,15 @@ from services.factcheck_service import FactCheckService
 from core.config import settings
 
 router = APIRouter()
-service = FactCheckService()
+# Không tạo service ngay khi import, mà tạo khi cần (lazy loading)
+_service = None
+
+def get_service():
+    """Lazy load service to avoid loading models at startup."""
+    global _service
+    if _service is None:
+        _service = FactCheckService()
+    return _service
 
 
 @router.post("/verify", response_model=FactCheckResponse, status_code=status.HTTP_200_OK)

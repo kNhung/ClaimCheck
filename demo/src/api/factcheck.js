@@ -1,7 +1,7 @@
 import axios from 'axios'
 
-// In development, use /api proxy. In production, use full URL from env
-const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:8000')
+// Luôn dùng /api trong production (qua Nginx proxy)
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
