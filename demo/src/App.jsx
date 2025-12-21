@@ -10,9 +10,18 @@ function App() {
   const [history, setHistory] = useState([])
   const [reportData, setReportData] = useState(null)
 
+  // Helper function to check if error is about invalid claim
+  const isInvalidClaimError = (errorMsg) => {
+    if (!errorMsg) return false
+    return errorMsg.includes('Vui lòng nhập một câu claim hợp lệ') ||
+      errorMsg.includes('không phải là một claim có thể kiểm chứng') ||
+      errorMsg.includes('Lỗi. Hãy nhập thông tin cần kiểm chứng') ||
+      errorMsg.includes('Lỗi. Hãy nhập 1 câu cần kiểm chứng')
+  }
+
   const handleSubmit = async () => {
     console.log('Submit button clicked')
-    
+
     if (!claim.trim()) {
       setError('Vui lòng nhập claim cần kiểm chứng')
       return
@@ -37,11 +46,11 @@ function App() {
         date: apiDate,
       })
       console.log('API response received:', response)
-      
+
       // Check if verdict indicates an error case (null or invalid verdict with very short/invalid claim)
       const claimLength = claim.trim().length
-      if (!response.verdict || response.verdict === null || 
-          (response.verdict === 'Not Enough Evidence' && claimLength < 5)) {
+      if (!response.verdict || response.verdict === null ||
+        (response.verdict === 'Not Enough Evidence' && claimLength < 5)) {
         // Treat as error case - claim is too short or invalid
         const errorMessage = 'Lỗi. Hãy nhập thông tin cần kiểm chứng.'
         setError(errorMessage)
@@ -50,7 +59,7 @@ function App() {
       } else {
         setResult(response)
         setError(null) // Clear any previous errors
-        
+
         // Fetch and parse report markdown
         if (response.report_id) {
           try {
@@ -67,7 +76,7 @@ function App() {
         } else {
           console.log('No report_id in response')
         }
-        
+
         // Add to history only if we have a valid result
         const historyItem = {
           id: response.report_id || Date.now().toString(),
@@ -82,21 +91,48 @@ function App() {
     } catch (err) {
       console.error('API error:', err)
       console.error('Error details:', err.response?.data)
-      
+      console.error('Error status:', err.response?.status)
+
+      // Xử lý lỗi 504 Gateway Timeout
+      if (err.response?.status === 504 || err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        const errorMessage = 'Quá trình kiểm chứng mất quá nhiều thời gian. Vui lòng thử lại với một claim ngắn gọn hơn hoặc kiểm tra lại sau.'
+        setError(errorMessage)
+        setLoading(false)
+        return
+      }
+
       // Extract error message from response
       let errorMessage = err.response?.data?.detail || err.message || 'Đã xảy ra lỗi khi kiểm chứng'
-      
-      // Check if error message contains our specific error message from backend
-      if (errorMessage.includes('Lỗi. Hãy nhập 1 câu cần kiểm chứng')) {
-        errorMessage = 'Lỗi. Hãy nhập thông tin cần kiểm chứng.'
+
+      // Check if error message indicates invalid claim (validation error)
+      // Backend returns HTTP 400 with user-friendly message for invalid claims
+      const isInvalidClaimError =
+        errorMessage.includes('Vui lòng nhập một câu claim hợp lệ') ||
+        errorMessage.includes('không phải là một claim có thể kiểm chứng') ||
+        errorMessage.includes('Lỗi. Hãy nhập 1 câu cần kiểm chứng') ||
+        errorMessage.includes('Filtered claim is empty') ||
+        errorMessage.includes('empty')
+
+      if (isInvalidClaimError) {
+        // Use the message from backend if it's user-friendly, otherwise use default
+        if (errorMessage.includes('Vui lòng nhập một câu claim hợp lệ')) {
+          // Keep the backend message as-is (it's already user-friendly)
+          errorMessage = errorMessage
+        } else {
+          // Fallback to simple message for old error formats
+          errorMessage = 'Vui lòng nhập một câu claim hợp lệ để kiểm chứng. Câu bạn nhập không phải là một claim có thể kiểm chứng được.'
+        }
       } else if (errorMessage.includes('Fact-checking failed:')) {
         // Extract the actual error message after "Fact-checking failed: "
         const actualError = errorMessage.replace('Fact-checking failed: ', '')
-        if (actualError.includes('Lỗi. Hãy nhập 1 câu cần kiểm chứng')) {
-          errorMessage = 'Lỗi. Hãy nhập thông tin cần kiểm chứng.'
+        if (actualError.includes('Vui lòng nhập một câu claim hợp lệ') ||
+          actualError.includes('Lỗi. Hãy nhập 1 câu cần kiểm chứng')) {
+          errorMessage = actualError.includes('Vui lòng nhập một câu claim hợp lệ')
+            ? actualError
+            : 'Vui lòng nhập một câu claim hợp lệ để kiểm chứng. Câu bạn nhập không phải là một claim có thể kiểm chứng được.'
         }
       }
-      
+
       setError(errorMessage)
     } finally {
       setLoading(false)
@@ -138,13 +174,13 @@ function App() {
     // Parse BƯỚC 4: RAV sections
     const step4Regex = /📋 BƯỚC 4: RAV \(Evidence Ranking\) - (https?:\/\/[^\s]+)/g
     const step4Matches = [...markdown.matchAll(step4Regex)]
-    
+
     console.log('parseReportMarkdown: Found', step4Matches.length, 'BƯỚC 4 sections')
 
     step4Matches.forEach((match, index) => {
       const url = match[1]
       const startIndex = match.index
-      
+
       // Find the next BƯỚC 4 section or next major section
       let nextSectionIndex = markdown.indexOf('📋 BƯỚC 4:', startIndex + 1)
       if (nextSectionIndex < 0) {
@@ -155,11 +191,11 @@ function App() {
         // Look for final sections
         nextSectionIndex = markdown.indexOf('📋 BƯỚC 7:', startIndex + 1)
       }
-      
-      const sectionContent = nextSectionIndex > 0 
+
+      const sectionContent = nextSectionIndex > 0
         ? markdown.substring(startIndex, nextSectionIndex)
         : markdown.substring(startIndex)
-      
+
       console.log(`parseReportMarkdown: Processing BƯỚC 4 #${index + 1}, URL: ${url}, section length: ${sectionContent.length}`)
 
       // Extract "KẾT QUẢ:" summary - look for the line after "✅ KẾT QUẢ:"
@@ -217,26 +253,26 @@ function App() {
         summary,
         topChunks
       })
-      
+
       console.log(`parseReportMarkdown: Added web result #${index + 1}:`, {
         url,
         hasSummary: !!summary,
         hasTopChunks: !!topChunks
       })
     })
-    
+
     console.log('parseReportMarkdown: Total webSearchResults:', data.webSearchResults.length)
 
     // Parse BƯỚC 6: Evidence selection - look for evidence after "🔍 BƯỚC 6: Chọn top_"
     const step6Index = markdown.indexOf('🔍 BƯỚC 6: Chọn top_')
     console.log('parseReportMarkdown: BƯỚC 6 index:', step6Index)
-    
+
     if (step6Index > 0) {
       const step6Section = markdown.substring(step6Index)
       // Find [E0], [E1], [E2] content - pattern: [E0] Score: X.XXXX - TEXT
       const evidenceRegex = /\[E(\d+)\]\s+Score:[^\n-]*-\s*(.*?)(?=\n\s*\[E\d+\]|\n==|$)/gs
       const evidenceMatches = [...step6Section.matchAll(evidenceRegex)]
-      
+
       console.log('parseReportMarkdown: Found', evidenceMatches.length, 'evidence matches')
 
       evidenceMatches.forEach(match => {
@@ -246,7 +282,7 @@ function App() {
         text = text.replace(/Score:\s*[0-9.-]+\s*/gi, '')
         text = text.replace(/\(score:\s*[0-9.-]+\s*\)/gi, '')
         text = text.trim()
-        
+
         if (index <= 2 && text) {
           data.evidenceSummary.push({
             index: index,
@@ -258,7 +294,7 @@ function App() {
     } else {
       console.log('parseReportMarkdown: BƯỚC 6 section not found')
     }
-    
+
     console.log('parseReportMarkdown: Final data:', {
       webSearchResultsCount: data.webSearchResults.length,
       evidenceSummaryCount: data.evidenceSummary.length
@@ -298,114 +334,114 @@ function App() {
       </div>
 
       <div className="main-content">
-      <div className="hero-section">
-        <div className="hero-content">
-          <h1 className="hero-title">
-            Vietnamese Fact-checking<br />
-            <span className="hero-subtitle">by HCMZooS</span>
-          </h1>
-        </div>
-        <div className="hero-divider"></div>
-        <div className="hero-description-wrapper">
-          <p className="hero-description">
-            Ứng dụng trí tuệ nhân tạo giúp bạn kiểm chứng thông tin nhanh chóng, chính xác và đáng tin cậy.
-          </p>
-        </div>
-      </div>
-
-      <div className="container">
-        <div className="input-section">
-          <div className="input-row">
-            <textarea
-              id="claim"
-              value={claim}
-              onChange={(e) => setClaim(e.target.value)}
-              placeholder="Nhập thông tin cần kiểm chứng..."
-              disabled={loading}
-              className="claim-input"
-            />
+        <div className="hero-section">
+          <div className="hero-content">
+            <h1 className="hero-title">
+              Vietnamese Fact-checking<br />
+              <span className="hero-subtitle">by HCMZooS</span>
+            </h1>
           </div>
-          <button 
-            type="button" 
-            onClick={handleSubmit}
-            disabled={loading} 
-            className="submit-btn"
-          >
-            {loading ? 'Đang kiểm chứng...' : 'Kiểm chứng'}
-          </button>
+          <div className="hero-divider"></div>
+          <div className="hero-description-wrapper">
+            <p className="hero-description">
+              Ứng dụng trí tuệ nhân tạo giúp bạn kiểm chứng thông tin nhanh chóng, chính xác và đáng tin cậy.
+            </p>
+          </div>
         </div>
 
-        {error && !error.includes('Lỗi. Hãy nhập thông tin cần kiểm chứng') && (
-          <div className="error-message">
-            <strong>Lỗi:</strong> {error}
-          </div>
-        )}
-
-        {(result || (error && error.includes('Lỗi. Hãy nhập thông tin cần kiểm chứng'))) && (
-          <div className="result-container">
-            <h2>Kết quả kiểm chứng</h2>
-            <div className="result-content">
-              {error && error.includes('Lỗi. Hãy nhập thông tin cần kiểm chứng') ? (
-                <div className="result-verdict">
-                  <span className="verdict verdict-error">
-                    {error}
-                  </span>
-                </div>
-              ) : result && (
-                <div className="result-verdict">
-                  <span className={`verdict verdict-${result.verdict?.toLowerCase().replace(/\s+/g, '-')}`}>
-                    {result.verdict}
-                  </span>
-                </div>
-              )}
-
-              {!error && reportData && reportData.webSearchResults && reportData.webSearchResults.length > 0 && (
-                <div className="result-section">
-                  <h3>Kết quả tìm kiếm trang web:</h3>
-                  {reportData.webSearchResults.map((item, idx) => (
-                    <div key={idx} className="web-result-item">
-                      <div className="web-result-url">
-                        <a href={item.url} target="_blank" rel="noopener noreferrer">
-                          {item.url}
-                        </a>
-                      </div>
-                      {item.summary && (
-                        <div className="web-result-summary">
-                          <strong>Tổng hợp kết quả ở trang web:</strong> {item.summary}
-                        </div>
-                      )}
-                      {item.topChunks && (
-                        <div className="web-result-chunks">
-                          <pre className="chunks-text">{item.topChunks}</pre>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              
-              {loading && (
-                <div className="result-section">
-                  <p>Đang tải dữ liệu từ report...</p>
-                </div>
-              )}
-
-              {!error && reportData && reportData.evidenceSummary && reportData.evidenceSummary.length > 0 && (
-                <div className="result-section">
-                  <h3>Bằng chứng sau cùng:</h3>
-                  <ul className="evidence-list">
-                    {reportData.evidenceSummary.map((item) => (
-                      <li key={item.index} className="evidence-item">
-                        {item.text}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+        <div className="container">
+          <div className="input-section">
+            <div className="input-row">
+              <textarea
+                id="claim"
+                value={claim}
+                onChange={(e) => setClaim(e.target.value)}
+                placeholder="Nhập thông tin cần kiểm chứng..."
+                disabled={loading}
+                className="claim-input"
+              />
             </div>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={loading}
+              className="submit-btn"
+            >
+              {loading ? 'Đang kiểm chứng...' : 'Kiểm chứng'}
+            </button>
           </div>
-        )}
-      </div>
+
+          {error && !isInvalidClaimError(error) && (
+            <div className="error-message">
+              <strong>Lỗi:</strong> {error}
+            </div>
+          )}
+
+          {(result || (error && isInvalidClaimError(error))) && (
+            <div className="result-container">
+              <h2>Kết quả kiểm chứng</h2>
+              <div className="result-content">
+                {error && isInvalidClaimError(error) ? (
+                  <div className="result-verdict">
+                    <span className="verdict verdict-error">
+                      {error}
+                    </span>
+                  </div>
+                ) : result && (
+                  <div className="result-verdict">
+                    <span className={`verdict verdict-${result.verdict?.toLowerCase().replace(/\s+/g, '-')}`}>
+                      {result.verdict}
+                    </span>
+                  </div>
+                )}
+
+                {!error && reportData && reportData.webSearchResults && reportData.webSearchResults.length > 0 && (
+                  <div className="result-section">
+                    <h3>Kết quả tìm kiếm trang web:</h3>
+                    {reportData.webSearchResults.map((item, idx) => (
+                      <div key={idx} className="web-result-item">
+                        <div className="web-result-url">
+                          <a href={item.url} target="_blank" rel="noopener noreferrer">
+                            {item.url}
+                          </a>
+                        </div>
+                        {item.summary && (
+                          <div className="web-result-summary">
+                            <strong>Tổng hợp kết quả ở trang web:</strong> {item.summary}
+                          </div>
+                        )}
+                        {item.topChunks && (
+                          <div className="web-result-chunks">
+                            <pre className="chunks-text">{item.topChunks}</pre>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {loading && (
+                  <div className="result-section">
+                    <p>Đang tải dữ liệu từ report...</p>
+                  </div>
+                )}
+
+                {!error && reportData && reportData.evidenceSummary && reportData.evidenceSummary.length > 0 && (
+                  <div className="result-section">
+                    <h3>Bằng chứng sau cùng:</h3>
+                    <ul className="evidence-list">
+                      {reportData.evidenceSummary.map((item) => (
+                        <li key={item.index} className="evidence-item">
+                          {item.text}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

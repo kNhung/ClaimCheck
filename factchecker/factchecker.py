@@ -683,9 +683,19 @@ def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, m
         checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name, enable_evidence_synthesis=enable_evidence_synthesis)
         verdict, report_path = checker.run()
         return verdict, report_path
+    except ValueError as e:
+        # Giữ nguyên ValueError với message thân thiện
+        # Đây thường là lỗi validation (claim không hợp lệ)
+        error_message = str(e)
+        # Nếu là lỗi "Filtered claim is empty", thay bằng message thân thiện hơn
+        if "Filtered claim is empty" in error_message or "empty" in error_message.lower():
+            error_message = "Vui lòng nhập một câu claim hợp lệ để kiểm chứng. Câu bạn nhập không phải là một claim có thể kiểm chứng được."
+        print(f"Error in factcheck: {e}")
+        print(f"User-friendly message: {error_message}")
+        raise ValueError(error_message) from e
     except Exception as e:
-        error_message = "Lỗi. Hãy nhập 1 câu cần kiểm chứng"
+        # Các lỗi khác
+        error_message = f"Đã xảy ra lỗi khi kiểm chứng: {str(e)}"
         print(f"Error in factcheck: {e}")
         print(error_message)
-        # Raise exception with user-friendly message so frontend can display it
         raise ValueError(error_message) from e

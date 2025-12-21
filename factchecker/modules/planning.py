@@ -18,7 +18,17 @@ NER_MODEL = os.getenv("FACTCHECKER_NER_MODEL", "Davlan/xlm-roberta-base-wikiann-
 # Load NER pipeline multilingual (XLM-RoBERTa fine-tuned cho NER trên WikiANN)
 # Model: Davlan/xlm-roberta-base-wikiann-ner
 # Hỗ trợ đa ngôn ngữ thực sự, bao gồm tiếng Việt và tiếng Anh
-ner_pipeline = pipeline("ner", model=NER_MODEL, aggregation_strategy="simple")
+_ner_pipeline = None
+
+def get_ner_pipeline():
+    """Lazy load NER pipeline to avoid loading model at import time."""
+    global _ner_pipeline
+    if _ner_pipeline is None:
+        # Load NER pipeline multilingual (XLM-RoBERTa fine-tuned cho NER trên WikiANN)
+        # Model: Davlan/xlm-roberta-base-wikiann-ner
+        # Hỗ trợ đa ngôn ngữ thực sự, bao gồm tiếng Việt và tiếng Anh
+        _ner_pipeline = pipeline("ner", model=NER_MODEL, aggregation_strategy="simple")
+    return _ner_pipeline
 
 # Stopwords tiếng Việt (mở rộng)
 VIETNAMESE_STOPWORDS = {
@@ -37,6 +47,8 @@ def extract_entities_and_keywords(claim: str) -> Tuple[List[str], List[str], Lis
         Tuple[List[str], List[str], List[str]]: (entities, keywords, phrases)
     """
     # 1. NER để tìm thực thể (dùng model multilingual)
+    # Lazy load pipeline khi cần
+    ner_pipeline = get_ner_pipeline()
     entities_result = ner_pipeline(claim)
     entities = []
     for entity in entities_result:

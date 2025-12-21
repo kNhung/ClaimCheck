@@ -54,6 +54,7 @@ async def verify_claim(request: FactCheckRequest):
     
     try:
         logger.info("Calling FactCheckService.verify_claim...")
+        service = get_service()
         result = await service.verify_claim(
             claim=request.claim,
             date=request.date,
@@ -63,7 +64,8 @@ async def verify_claim(request: FactCheckRequest):
         logger.info(f"Fact-check completed: verdict={result.verdict}, report_id={result.report_id}")
         return result
     except ValueError as e:
-        logger.error(f"Validation error: {str(e)}")
+        # ValueError là lỗi validation (claim không hợp lệ) - không phải lỗi hệ thống
+        logger.warning(f"Invalid claim provided by user: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)

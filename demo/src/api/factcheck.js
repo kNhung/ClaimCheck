@@ -8,6 +8,8 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Timeout 10 phút (600000ms) - đủ cho quá trình fact-checking
+  timeout: 600000,
 })
 
 /**

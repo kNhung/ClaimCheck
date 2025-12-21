@@ -78,6 +78,22 @@ class FactCheckService:
             logger.info(f"Starting fact-check: claim='{claim[:50]}...', date={date}, identifier={identifier}")
             logger.info(f"Using max_actions={max_actions}, model_name={model_name}")
             
+            # Validate claim sớm (trước khi load models) để tiết kiệm thời gian
+            try:
+                from factchecker.modules.claim_detection import claim_filter
+                filtered_claim = claim_filter(claim)
+                if not filtered_claim or not filtered_claim.strip():
+                    error_message = "Vui lòng nhập một câu claim hợp lệ để kiểm chứng. Câu bạn nhập không phải là một claim có thể kiểm chứng được."
+                    logger.warning(f"Claim validation failed: original='{claim[:50]}...', filtered='{filtered_claim}'")
+                    raise ValueError(error_message)
+                logger.info(f"Claim validated successfully: filtered='{filtered_claim[:50]}...'")
+            except ValueError:
+                # Re-raise ValueError để router xử lý đúng
+                raise
+            except Exception as validation_err:
+                # Nếu có lỗi khi validate (ví dụ import error), log nhưng vẫn tiếp tục
+                logger.warning(f"Claim validation skipped due to error: {validation_err}")
+            
             # Check if factcheck function is available
             try:
                 from factchecker.factchecker import factcheck as factcheck_func
@@ -145,12 +161,17 @@ class FactCheckService:
                 date=date,
                 model=model_name
             )
+        except ValueError as e:
+            # Giữ nguyên ValueError để router có thể trả về HTTP 400
+            # ValueError thường là lỗi validation (claim không hợp lệ)
+            logger.warning(f"Validation error in verify_claim: {str(e)}")
+            raise
         except ImportError as e:
             # Re-raise ImportError as-is
             logger.error(f"Import error in verify_claim: {str(e)}")
             raise
         except Exception as e:
-            # Re-raise with context
+            # Re-raise với context cho các lỗi khác
             logger.error(f"Unexpected error in verify_claim: {type(e).__name__}: {str(e)}")
             import traceback
             logger.error(f"Full traceback:\n{traceback.format_exc()}")

@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+
+# Reports và temp files
+reports/
+temp/
+*.log
+
+# Test files
+test_*.py
+*_test.py
+*.csv
+
+# Documentation
+*.md
+!README.md
+
+# Environment files (không copy .env vào image)
+.env
+.env.local
+
+# Node modules (nếu có)
+node_modules/
+npm-debug.log
+
+# Docker files
+docker-compose.yml
+Dockerfile*
+.dockerignore

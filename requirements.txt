@@ -105,7 +105,7 @@ mypy-extensions==1.0.0
 nest-asyncio==1.6.0
 networkx==3.4.2
 nltk==3.9.1
-numpy==2.2.6
+numpy>=1.26.0,<2.0.0
 nvidia-cublas-cu12==12.4.5.8
 nvidia-cuda-cupti-cu12==12.4.127
 nvidia-cuda-nvrtc-cu12==12.4.127
@@ -121,7 +121,7 @@ nvidia-nvtx-cu12==12.4.127
 ollama==0.4.4
 openai==1.58.1
 groq==0.11.0
-opencv-python==4.12.0.88
+opencv-python>=4.8.0,<4.12.0
 orjson==3.10.12
 packaging==24.2
 pandas==2.2.3
@@ -135,7 +135,7 @@ preshed==3.0.9
 prompt_toolkit==3.0.48
 propcache==0.2.1
 proto-plus==1.25.0
-protobuf==3.20.3
+protobuf>=4.21.6,<6.0.0
 psutil==6.1.1
 ptyprocess==0.7.0
 pure_eval==0.2.3
@@ -205,8 +205,6 @@ typing_extensions==4.12.2
 tyro==0.9.5
 tzdata==2024.2
 tzlocal==5.2
-unsloth==2024.12.11
-unsloth_zoo==2024.12.6
 uritemplate==4.1.1
 urllib3==2.2.3
 uvicorn==0.38.0
@@ -222,3 +220,4 @@ youtube-transcript-api==0.6.3
 streamlit==1.39.0
 playwright==1.49.1
 redis==5.2.0
+underthesea
