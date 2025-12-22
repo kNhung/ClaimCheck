@@ -1,0 +1,14 @@
+services:
+  backend:
+    # Bật GPU cho container backend trên các máy đã cài NVIDIA Container Toolkit
+    # File này chỉ dùng như một lớp override, kết hợp với docker-compose.yml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ "gpu" ]
+    environment:
+      # Override mặc định CPU trong file chính để dùng GPU
+      - FACTCHECKER_EMBED_DEVICE=cuda

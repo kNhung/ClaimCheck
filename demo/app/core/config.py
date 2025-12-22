@@ -22,8 +22,6 @@ class Settings(BaseModel):
     
     # API Keys
     SERPER_API_KEY: Optional[str] = None
-    GOOGLE_API_KEY: Optional[str] = None
-    GOOGLE_CX: Optional[str] = None
     
     # Paths
     REPORTS_DIR: str = "reports"

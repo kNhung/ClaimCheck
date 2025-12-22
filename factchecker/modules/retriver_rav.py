@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 
 # dotenv.load_dotenv() is called in factchecker/__init__.py
 
-_EMBED_DEVICE = os.getenv("FACTCHECKER_EMBED_DEVICE")
+_EMBED_DEVICE_ENV = os.getenv("FACTCHECKER_EMBED_DEVICE")
 _BI_MODEL_NAME = os.getenv("FACTCHECKER_BI_ENCODER", "paraphrase-multilingual-MiniLM-L12-v2")
 _CROSS_MODEL_NAME = os.getenv("FACTCHECKER_CROSS_ENCODER", "cross-encoder/ms-marco-MiniLM-L-6-v2")
 
@@ -20,6 +20,31 @@ _CROSS_MODEL_NAME = os.getenv("FACTCHECKER_CROSS_ENCODER", "cross-encoder/ms-mar
 _bi_model_cache = None
 _cross_model_cache = None
 _model_lock = Lock()
+
+
+def _get_safe_device():
+    """
+    Get device for model loading with automatic fallback to CPU if GPU is not available.
+    
+    Returns:
+        str: Device string ('cuda', 'cpu', etc.) that is safe to use
+    """
+    device = _EMBED_DEVICE_ENV or "cpu"
+    
+    # If device is set to GPU-related values, check availability
+    if device.lower() in ("cuda", "gpu"):
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "cuda"
+            else:
+                print(f"⚠️  GPU requested but not available. Falling back to CPU.")
+                return "cpu"
+        except ImportError:
+            print(f"⚠️  PyTorch not available. Falling back to CPU.")
+            return "cpu"
+    
+    return device
 
 def scrape_text(url):
     try:
@@ -57,10 +82,17 @@ def _get_bi_model(model_name=_BI_MODEL_NAME):
         with _model_lock:
             # Double-check pattern to avoid race condition
             if _bi_model_cache is None:
-                kwargs = {}
-                if _EMBED_DEVICE:
-                    kwargs["device"] = _EMBED_DEVICE
-                _bi_model_cache = SentenceTransformer(model_name, **kwargs)
+                try:
+                    device = _get_safe_device()
+                    kwargs = {"device": device}
+                    _bi_model_cache = SentenceTransformer(model_name, **kwargs)
+                    print(f"✓ Loaded bi-encoder model on device: {device}")
+                except Exception as e:
+                    # Fallback to CPU if any error occurs
+                    print(f"⚠️  Error loading model on {device}, falling back to CPU: {e}")
+                    kwargs = {"device": "cpu"}
+                    _bi_model_cache = SentenceTransformer(model_name, **kwargs)
+                    print(f"✓ Loaded bi-encoder model on device: cpu (fallback)")
     return _bi_model_cache
 
 
@@ -71,10 +103,17 @@ def _get_cross_model(model_name=_CROSS_MODEL_NAME):
         with _model_lock:
             # Double-check pattern to avoid race condition
             if _cross_model_cache is None:
-                kwargs = {}
-                if _EMBED_DEVICE:
-                    kwargs["device"] = _EMBED_DEVICE
-                _cross_model_cache = CrossEncoder(model_name, **kwargs)
+                try:
+                    device = _get_safe_device()
+                    kwargs = {"device": device}
+                    _cross_model_cache = CrossEncoder(model_name, **kwargs)
+                    print(f"✓ Loaded cross-encoder model on device: {device}")
+                except Exception as e:
+                    # Fallback to CPU if any error occurs
+                    print(f"⚠️  Error loading model on {device}, falling back to CPU: {e}")
+                    kwargs = {"device": "cpu"}
+                    _cross_model_cache = CrossEncoder(model_name, **kwargs)
+                    print(f"✓ Loaded cross-encoder model on device: cpu (fallback)")
     return _cross_model_cache
 
 

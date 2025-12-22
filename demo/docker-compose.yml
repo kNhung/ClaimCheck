@@ -21,9 +21,9 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - SERPER_API_KEY=${SERPER_API_KEY}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - GOOGLE_CX=${GOOGLE_CX}
       - FACTCHECKER_MODEL_NAME=${FACTCHECKER_MODEL_NAME:-qwen2.5:0.5b}
+      # Mặc định dùng CPU (an toàn trên mọi môi trường); file override GPU sẽ set lại thành cuda
+      - FACTCHECKER_EMBED_DEVICE=${FACTCHECKER_EMBED_DEVICE:-cpu}
       - REPORTS_DIR=../reports
     volumes:
       # Mount thư mục reports từ host vào container
@@ -32,7 +32,7 @@ services:
     restart: unless-stopped
     healthcheck:
       # Kiểm tra sức khỏe của backend mỗi 30 giây
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3

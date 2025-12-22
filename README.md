@@ -1,70 +1,215 @@
-# ClaimCheck
+# Hướng Dẫn Triển Khai (Deployment Guide)
 
-## Overview
-ClaimCheck is a fact-checking system that processes claims and verifies their veracity using various modules and models.
+## Tổng Quan Kiến Trúc
 
-## Pre-requisites
-1. Create a new Programmable Search Engine in Google:
-   - Go to the [Programmable Search Engine](https://cse.google.com/cse/) and create a new search engine.
-   - Note down the CSE ID.
-   - Enable the Custom Search JSON API in the [Google Cloud Console](https://console.cloud.google.com/).
-   - Note down the API key.
+Hệ thống ClaimCheck được triển khai 2 thành phần chính:
 
-2. Get your API key from [SerpAPI](https://serper.dev/).
+### Backend Service (FastAPI)
+- **Container**: `claimcheck-backend`
+- **Port**: `8000`
+- **Framework**: FastAPI với Uvicorn
+- **Chức năng**: 
+  - API xử lý fact-checking (`/factcheck/verify`)
+  - Quản lý reports (`/reports`)
+  - Health checks (`/health`)
+  - API Documentation (`/docs`, `/redoc`)
 
-3. Create a `.env` file in the project root directory and fill in the following environment variables:
+### Frontend Service (React + Nginx)
+- **Container**: `claimcheck-frontend`
+- **Port**: `80`
+- **Framework**: React (Vite) + Nginx
+- **Chức năng**: 
+  - Giao diện web cho người dùng
+  - Proxy API requests đến backend qua `/api`
+  - Serve static files
 
--`SERPER_API_KEY`: API key from Serper
-- `FACTCHECKER_MODEL_NAME`: The Ollama model name used for fact-checking (default: "qwen2.5:0.5b")
-- `FACTCHECKER_MAX_ACTIONS`: Maximum number of actions to run (default: 2)
+### Lưu Trữ Dữ Liệu
+- **Reports**: Được lưu trong thư mục `./reports` trên host, được mount vào container
+- **Format**: Mỗi report bao gồm `report.json`, `report.md`, `evidence.md`
 
-Example `.env` file content:
+---
 
-```
-FACTCHECKER_MODEL_NAME=qwen2.5:0.5b
-FACTCHECKER_MAX_ACTIONS=2
-```
-
-**Note**: Ensure the `.env` file is not committed to Git (add it to `.gitignore`).
-
-## Installation
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/idirlab/ClaimCheck.git
-    cd ClaimCheck
-    ```
-
-2. Install the required dependencies:
-    ```bash
-    pip install -r requirements.txt
-    playwright install chromium
-    ```
-
-
-## Usage
-To run the fact-checking system from the command line, use the `fact-check.py` script. It takes three arguments: the path to the JSON file containing the claims, the number of records to process and model name.
-
-### Command Line Arguments:
-- `json_path`: Path to the AVeriTeC JSON file.
-- `num_records`: Number of claims to run.
-- `model_name`: Name of the model.
-
-### Example:
+### Cài Đặt Docker (nếu chưa có)
 ```bash
-python fact-check.py /path/to/json/file.json 5 qwen2.5:0.5b
+# Cài đặt Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# Thêm user vào group docker để chạy không cần sudo
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Cài đặt Docker Compose plugin
+sudo apt-get update
+sudo apt-get install docker-compose-plugin
 ```
 
-Replace `/path/to/json/file.json` with the actual path to your AVeriTeC JSON file and `5` with the number of records you want to process. You can find AVeriTeC JSON files [here](https://fever.ai/dataset/averitec.html).
+## Chuẩn Bị Biến Môi Trường
 
+### 1. Tạo File `.env`
 
-## Streamlit UI (Tiếng Việt)
-
-Bạn có thể chạy giao diện đơn giản để nhập claim, chọn ngày cắt (cut-off) và xem quá trình suy luận, bằng chứng, kết luận.
-You can run simple UI to input claim, choose cut-off date then have verdict and evidence.
+Copy .env.example sang file `.env` trong thư mục gốc của project (`ClaimCheck/`):
 
 ```bash
-streamlit run app.py
+cd /path/to/ClaimCheck
+cp .env.example .env
 ```
-3) Mở trình duyệt theo URL mà Streamlit hiển thị (thường là http://localhost:8501). Nhập claim, chọn ngày, và nhấn "Chạy kiểm chứng".
-4) Open streamlit UI (often at http://localhost:8501)
-App will save report at `reports/<timestamp>/ including `report.md`, `evidence.md`, `report.json`. 
+
+### 2. Cấu Hình Các Biến Môi Trường
+
+Sau khi copy file `.env.example` sang `.env`, mở file `.env` và điền các giá trị thực tế:
+
+**Các biến bắt buộc:**
+- `SERPER_API_KEY`: API key từ Serper (bắt buộc)
+
+**Các biến tùy chọn (có giá trị mặc định):**
+- `FACTCHECKER_MODEL_NAME`: Tên model Ollama chính (mặc định: `qwen2.5:0.5b`)
+- `FACTCHECKER_JUDGE_MODEL`: Model Ollama cho judging (tùy chọn, ví dụ: `qwen2.5:3b`)
+- `FACTCHECKER_JUDGE_PROVIDER`: Provider cho judging (`ollama` hoặc `gemini`, mặc định: `ollama`)
+- `FACTCHECKER_EMBED_DEVICE`: Thiết bị chạy embedding (`cpu` hoặc `cuda`, mặc định: `cpu`). Nếu đặt `cuda` nhưng GPU không khả dụng, hệ thống sẽ tự động fallback về `cpu`.
+- `FACTCHECKER_MAX_ACTIONS`: Số lượng actions tối đa (mặc định: `1`)
+
+**Các biến cho Gemini (cần khi `FACTCHECKER_JUDGE_PROVIDER=gemini`):**
+- `GEMINI_API_KEY`: API key từ Google Gemini (bắt buộc nếu dùng Gemini)
+- `GEMINI_MODEL`: Tên model Gemini (mặc định: `gemini-1.5-flash`)
+
+Xem file `.env.example` để biết format và các biến có sẵn.
+
+### 3. Lấy API Keys
+
+#### Serper API Key
+1. Đăng ký tài khoản tại https://serper.dev/
+2. Vào Dashboard và copy API key
+3. Paste vào `SERPER_API_KEY` trong file `.env`
+
+#### Gemini API Key (Tùy chọn - chỉ cần nếu dùng Gemini cho judging)
+1. Truy cập https://aistudio.google.com/app/apikey
+2. Tạo API key mới
+3. Paste vào `GEMINI_API_KEY` trong file `.env`
+4. Gán `FACTCHECKER_JUDGE_PROVIDER=gemini` trong file `.env`
+
+
+
+## Triển Khai Nhanh
+
+### Bước 1: Clone Repository
+
+```bash
+git clone https://github.com/idirlab/ClaimCheck.git
+cd ClaimCheck
+```
+
+### Bước 2: Tạo Thư Mục Reports
+
+```bash
+mkdir -p reports
+chmod 755 reports
+```
+
+### Bước 3: Tạo File `.env`
+
+Tạo và điền file `.env` như hướng dẫn ở phần [Chuẩn Bị Biến Môi Trường](#chuẩn-bị-biến-môi-trường).
+
+### Bước 4: Triển Khai
+
+#### Triển Khai Với CPU (Mặc Định)
+
+```bash
+cd demo
+docker compose -f docker-compose.yml up -d --build
+```
+
+#### Triển Khai Với GPU (Nếu Có NVIDIA GPU)
+
+```bash
+cd demo
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
+**Giải thích lệnh:**
+- `-f docker-compose.yml`: File cấu hình chính
+- `-f docker-compose.gpu.yml`: File override để bật GPU
+- `-d`: Chạy ở chế độ detached (background)
+- `--build`: Build lại images nếu có thay đổi
+
+### Bước 5: Kiểm Tra Trạng Thái
+
+```bash
+# Xem trạng thái các containers
+docker compose -f docker-compose.yml ps
+
+# Xem logs
+docker compose -f docker-compose.yml logs -f
+```
+
+### Bước 6: Kiểm Tra Ứng Dụng
+
+1. **Frontend**: Mở trình duyệt và truy cập `http://localhost`
+2. **Backend API Docs**: Truy cập `http://localhost:8000/docs`
+3. **Health Check**: 
+   ```bash
+   curl http://localhost:8000/health
+   # Hoặc
+   curl http://localhost/health
+   ```
+
+Kết quả mong đợi:
+```json
+{"message": "healthy"}
+```
+
+---
+
+## Các lệnh thường dùng
+
+### Dừng Ứng Dụng
+
+```bash
+cd demo
+docker compose -f docker-compose.yml down
+```
+
+### Dừng và Xóa Tất Cả
+
+```bash
+cd demo
+docker compose -f docker-compose.yml down -v
+```
+
+### Xem Logs
+
+```bash
+cd demo
+
+# Xem logs của tất cả services
+docker compose -f docker-compose.yml logs -f
+
+# Xem logs của backend
+docker compose -f docker-compose.yml logs -f backend
+
+# Xem logs của frontend
+docker compose -f docker-compose.yml logs -f frontend
+```
+
+### Rebuild Sau Khi Cập Nhật Code
+
+```bash
+cd demo
+
+# Rebuild và restart
+docker compose -f docker-compose.yml up -d --build
+
+# Hoặc rebuild từ đầu (xóa cache)
+docker compose -f docker-compose.yml build --no-cache
+docker compose -f docker-compose.yml up -d
+```
+
+### Kiểm tra trạng thái container
+
+```bash
+# Xem trạng thái chi tiết
+docker compose -f docker-compose.yml ps
+
+# Test health endpoint
+curl http://localhost:8000/health
+```
