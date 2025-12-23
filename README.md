@@ -29,6 +29,40 @@ Hệ thống ClaimCheck được triển khai 2 thành phần chính:
 
 ---
 
+### Pipeline (Luồng xử lý nhanh)
+
+Tổng quan ngắn về luồng xử lý claim trong hệ thống và các file chính tương ứng:
+
+- Bước 0. Tiền xử lý & phân đoạn: chuẩn hoá văn bản, phục hồi dấu tiếng Việt, loại bỏ ký tự rác.
+  - File chính: `factchecker/preprocessing/preprocessing.py`
+
+- Bước 1. Phát hiện & lọc claim: tách câu, xác định câu nào đủ điều kiện để fact-check.
+  - File chính: `factchecker/modules/claim_detection.py`
+
+- Bước 2. Lập kế hoạch truy vấn (Claim → Query): sinh các truy vấn/search queries để thu thập bằng chứng.
+  - File chính: `factchecker/modules/planning.py`
+
+- Bước 3. Web Search: tìm các URL/snippet liên quan với query.
+  - File chính: `factchecker/tools/web_search.py`
+
+- Bước 4. Web Scraping: lấy nội dung trang (HTML → plain text) để làm nguồn evidence.
+  - File chính: `factchecker/tools/web_scraper.py`
+  - File phụ (cache bài báo đã scrape để dùng lại): `factchecker/tools/cache.py`
+
+- Bước 5. Retriever + Ranker (RAV): chunk hoá văn bản, embedding (bi-encoder) để lấy top-p, sau đó re-rank bằng cross-encoder lấy top-q evidence.
+  - File chính: `factchecker/modules/retriver_rav.py`
+
+- Bước 6. Kiểm tra tính đầy đủ của bằng chứng (nếu enable): kiểm tra đã đủ bằng chứng chưa, nếu chưa thì đề xuất hành động để tìm thêm bằng chứng.
+  - File chính: `factchecker/modules/evidence_synthesis.py`
+
+- Bước 7. Judge (LLM): dùng model (Ollama / Gemini) để đưa ra verdict (Supported / Refuted / Not Enough Evidence) và giải thích.
+  - File chính:  `factchecker/modules/evaluation.py` (nếu cần chuẩn hoá input)
+
+- Orchestrator & Report: logic điều phối toàn bộ pipeline, logging và ghi report vào thư mục `reports/`.
+  - File chính: `factchecker/factchecker.py` (điều phối) và `fact-check.py` (script runner để chạy batch)
+
+Ghi chú: các bước trên được ghi log chi tiết vào `factchecker/report/report_writer.py` và có thể tuỳ biến bằng biến môi trường (ví dụ `FACTCHECKER_MAX_ACTIONS`, `FACTCHECKER_MODEL_NAME`, `FACTCHECKER_EMBED_DEVICE`).
+
 ### Cài Đặt Docker (nếu chưa có)
 ```bash
 # Cài đặt Docker
@@ -43,6 +77,40 @@ newgrp docker
 sudo apt-get update
 sudo apt-get install docker-compose-plugin
 ```
+
+### Cài Đặt Redis 
+
+- Ubuntu/Debian:
+```bash
+sudo apt update
+sudo apt install -y redis-server
+sudo systemctl enable --now redis-server
+sudo systemctl status redis-server
+```
+
+- macOS (Homebrew):
+```bash
+brew install redis
+brew services start redis
+```
+
+- Chạy nhanh bằng Docker (mapping port 6379):
+```bash
+docker run -p 6379:6379 -d --name claimcheck-redis redis:7
+```
+
+- Lưu ý:
+  - Thư viện Python `redis` đã được liệt kê trong `requirements.txt`; đảm bảo service Redis đang chạy trước khi sử dụng cache.
+  - Khởi động Redis cục bộ:
+```bash
+redis-server
+# Hoặc chạy nền:
+redis-server --daemonize yes
+```
+
+- Tham số kết nối (env): `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, `REDIS_PASSWORD`.
+
+- Xem chi tiết cấu hình và hướng dẫn sử dụng cache trong `REDIS_CACHE_GUIDE.md`.
 
 ## Chuẩn Bị Biến Môi Trường
 
@@ -74,6 +142,8 @@ Sau khi copy file `.env.example` sang `.env`, mở file `.env` và điền các 
 - `GEMINI_MODEL`: Tên model Gemini (mặc định: `gemini-1.5-flash`)
 
 Xem file `.env.example` để biết format và các biến có sẵn.
+
+
 
 ### 3. Lấy API Keys
 

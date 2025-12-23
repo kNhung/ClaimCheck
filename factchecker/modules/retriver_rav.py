@@ -46,18 +46,6 @@ def _get_safe_device():
     
     return device
 
-def scrape_text(url):
-    try:
-        resp = requests.get(url, timeout=5)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        paragraphs = soup.find_all('p')
-        text = " ".join([p.get_text() for p in paragraphs])
-        # Clear soup object to free memory
-        del soup
-        return text
-    except:
-        return ""
-
 def chunk_text(text, chunk_size=60):
     """
     Chunk text thành các đoạn nhỏ.
