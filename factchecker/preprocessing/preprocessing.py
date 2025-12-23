@@ -385,7 +385,7 @@ def fix_character_spacing(text: str) -> str:
     return ' '.join(result)
 
   # ====================== HÀM CHÍNH ======================
-def preprocess(text: str, use_accent_restorer: bool = True) -> str:
+def preprocess(text: SystemError) -> str:
     """
     Pipeline hoàn chỉnh cho ViFact-Checking
     Input: text bẩn từ FB, TikTok, OCR...

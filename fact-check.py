@@ -1,5 +1,3 @@
-from env_config import *  # Load environment variables
-
 from factchecker.factchecker import factcheck
 from factchecker.report import report_writer
 from factchecker.preprocessing.preprocessing import preprocess
@@ -19,20 +17,21 @@ def csv_to_json(csv_path):
 if __name__ == "__main__":
     # Kiểm tra tham số
     if len(sys.argv) < 3:
-        print("Usage: python fact-check.py <path_to_file> <num_records> [model_name] [--shuffle] [--seed <seed_value>]")
+        print("Usage: python fact-check.py <path_to_file> <num_records> [judge_model_name] [--shuffle] [--seed <seed_value>]")
         print("Supported formats: .json, .csv")
         print("Options:")
         print("  --shuffle: Shuffle dataset before selecting records")
         print("  --seed <value>: Random seed for shuffling (use with --shuffle, default: random)")
         print("\nExamples:")
         print("  python fact-check.py dataset.csv 10 qwen2.5:0.5b")
+        print("  python fact-check.py dataset.csv 10 gemini-2.5-flash")
         print("  python fact-check.py dataset.csv 10 qwen2.5:0.5b --shuffle")
         print("  python fact-check.py dataset.csv 10 qwen2.5:0.5b --shuffle --seed 42")
         sys.exit(1)
 
     input_path = sys.argv[1]
     num_records = int(sys.argv[2])
-    model_name = None
+    judge_model_name = None
     shuffle = False
     random_seed = None
     
@@ -53,19 +52,19 @@ if __name__ == "__main__":
         elif arg.startswith("--"):
             print(f"Warning: Unknown option '{arg}', ignoring")
         else:
-            # Assume it's model_name if not a flag and model_name not set yet
-            if model_name is None:
-                model_name = arg
+            # Assume it's judge_model_name if not a flag and judge_model_name not set yet
+            if judge_model_name is None:
+                judge_model_name = arg
         i += 1
     
     # Set default model name if not provided
-    if not model_name:
+    if not judge_model_name:
         # Unified primary env var: FACTCHECKER_MODEL_NAME (with backward-compatible fallback)
-        model_name = (
-            os.getenv("FACTCHECKER_MODEL_NAME")
-            or os.getenv("FACTCHECK_MODEL_NAME")
-            or "qwen3:4b"
-        )
+        judge_provider = os.getenv("FACTCHECKER_JUDGE_PROVIDER", "ollama").lower()
+        if judge_provider == "gemini":
+            judge_model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        else:
+            judge_model_name = os.getenv("OLLAMA_JUDGE_MODEL", "qwen3:4b")
     
     # Set random seed if shuffle is enabled
     if shuffle:
@@ -140,8 +139,7 @@ if __name__ == "__main__":
             clean_claim, 
             date, 
             identifier=identifier,
-            expected_label=expected_label,
-            model_name=model_name
+            judge_model_name=judge_model_name
         )
         
         # Kết thúc đo thời gian cho sample này
@@ -152,24 +150,21 @@ if __name__ == "__main__":
         print(f"⏱️  Thời gian xử lý sample này: {processing_time_seconds:.2f} giây")
         
         # Get content from report for CSV
-        evidence, reasoning, verdict_text, justification = report_writer.get_report_content()
+        evidence, verdict_text, justification = report_writer.get_report_content()
         
         # Write to CSV with claim_id
         csv_path = os.path.join(os.getcwd(), 'reports', run_identifier, 'detailed_results.csv')
         report_writer.write_detailed_csv(
             claim=raw_claim,   
-            clean_claim=clean_claim,
-            date=date,
             evidence=evidence,
-            reasoning=reasoning,
             verdict=verdict,
-            justification=justification,
             report_path=report_path,
             csv_path=csv_path,
             expected_label=expected_label,
             claim_id=claim_id,  # Pass the id
-            model_name=model_name,
-            processing_time=processing_time_seconds
+            judge_model_name=judge_model_name,
+            processing_time=processing_time_seconds,
+            clean_claim=clean_claim,
         )
     # Tính toán thời gian tổng thể
     total_end_time = datetime.now(VN_TIMEZONE)

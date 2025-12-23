@@ -125,23 +125,32 @@ cp .env.example .env
 
 ### 2. Cấu Hình Các Biến Môi Trường
 
-Sau khi copy file `.env.example` sang `.env`, mở file `.env` và điền các giá trị thực tế:
+Sau khi copy file `.env.example` sang `.env`, mở file `.env` và điền các giá trị thực tế.
 
 **Các biến bắt buộc:**
 - `SERPER_API_KEY`: API key từ Serper (bắt buộc)
 
-**Các biến tùy chọn (có giá trị mặc định):**
-- `FACTCHECKER_MODEL_NAME`: Tên model Ollama chính (mặc định: `qwen2.5:0.5b`)
-- `FACTCHECKER_JUDGE_MODEL`: Model Ollama cho judging (tùy chọn, ví dụ: `qwen2.5:3b`)
-- `FACTCHECKER_JUDGE_PROVIDER`: Provider cho judging (`ollama` hoặc `gemini`, mặc định: `ollama`)
-- `FACTCHECKER_EMBED_DEVICE`: Thiết bị chạy embedding (`cpu` hoặc `cuda`, mặc định: `cpu`). Nếu đặt `cuda` nhưng GPU không khả dụng, hệ thống sẽ tự động fallback về `cpu`.
-- `FACTCHECKER_MAX_ACTIONS`: Số lượng actions tối đa (mặc định: `1`)
+**Các biến chính trong `.env.example` (mặc định có trong file):**
+- `FACTCHECKER_BI_ENCODER`: Tên bi-encoder cho embedding (mặc định: `paraphrase-multilingual-MiniLM-L12-v2`)
+- `FACTCHECKER_CROSS_ENCODER`: Tên cross-encoder cho reranking (mặc định: `cross-encoder/ms-marco-MiniLM-L-6-v2`)
+- `FACTCHECKER_JUDGE_PROVIDER`: Provider cho bước judge (`gemini` hoặc `ollama`, mặc định `gemini`).
 
-**Các biến cho Gemini (cần khi `FACTCHECKER_JUDGE_PROVIDER=gemini`):**
-- `GEMINI_API_KEY`: API key từ Google Gemini (bắt buộc nếu dùng Gemini)
-- `GEMINI_MODEL`: Tên model Gemini (mặc định: `gemini-1.5-flash`)
+**Khi dùng Gemini làm judge (cần thiết nếu `FACTCHECKER_JUDGE_PROVIDER=gemini`)**
+- `GEMINI_API_KEY`: API key từ Google (bắt buộc nếu dùng Gemini)
+- `GEMINI_MODEL`: Tên model Gemini (mặc định: `gemini-2.5-flash`)
 
-Xem file `.env.example` để biết format và các biến có sẵn.
+**Khi dùng Ollama / Qwen (cấu hình local):**
+- `OLLAMA_JUDGE_MODEL`: (tùy chọn) model Ollama dành cho judging (ví dụ: `qwen2.5:3b`) — thường được ghi comment trong `.env.example`.
+- `OLLAMA_MODEL_NAME`: model Ollama mặc định cho các bước LLM (mặc định: `qwen2.5:1.5b`).
+
+**Các biến cấu hình khác:**
+- `FACTCHECKER_MAX_ACTIONS`: Số lượng actions tối đa khi lập kế hoạch (mặc định: `2`).
+- `FACTCHECKER_EMBED_DEVICE`: Thiết bị cho embedding (`cuda` hoặc `cpu`). `.env.example` mặc định là `cuda` (hệ thống sẽ fallback về `cpu` nếu GPU không khả dụng).
+
+**Cấu hình Redis (nếu dùng cache):**
+- `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, `REDIS_PASSWORD` — xem `REDIS_CACHE_GUIDE.md` để biết chi tiết.
+
+Xem file `.env.example` để biết đầy đủ các biến và mặc định.
 
 
 

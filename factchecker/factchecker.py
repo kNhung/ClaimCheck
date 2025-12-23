@@ -6,28 +6,12 @@ import concurrent.futures
 from threading import Lock
 from contextlib import contextmanager
 from urllib.parse import urlparse
-from .modules import planning, evidence_synthesis, evaluation, retriver_rav, llm, claim_detection
+from .modules import planning, evaluation, retriver_rav, llm, claim_detection
 from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
-import dotenv
-dotenv.load_dotenv()
+
 MAX_ACTIONS = int(os.getenv("FACTCHECKER_MAX_ACTIONS", "2"))
-
-RULES_PROMPT = """
-Supported (Có căn cứ)
-1. Chỉ chọn khi có bằng chứng rõ ràng, đáng tin cậy và liên hệ trực tiếp với nội dung Claim.
-2. Nếu yêu cầu gồm nhiều luận điểm, TẤT CẢ các luận điểm đều phải được xác nhận là đúng thì mới chọn Supported.
-
-Refuted (Bị bác bỏ)
-1. Áp dụng khi bằng chứng đáng tin cậy cho thấy Claim sai, mâu thuẫn hoặc bị bác bỏ trực tiếp.
-2. Nếu Claim có nhiều luận điểm, chỉ cần MỘT luận điểm bị bác bỏ là đủ để kết luận toàn bộ yêu cầu Refuted.
-
-Not Enough Evidence (Thiếu bằng chứng)
-1. Dùng khi không có đủ dữ liệu đáng tin cậy để khẳng định đúng/sai.
-2. Áp dụng khi Claim quá mơ hồ, thiếu thông tin, hoặc không thể kiểm chứng với nguồn hiện có.
-3. Với Claim có nhiều luận điểm, chỉ cần MỘT luận điểm thiếu bằng chứng là phải chọn Not Enough Evidence.
-"""
 
 LABEL_MAP = {
     # Numeric to text
@@ -56,7 +40,7 @@ class TimerTracker:
 
 
 class FactChecker:
-    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=3, model_name=None, enable_evidence_synthesis=None):
+    def __init__(self, claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, judge_model_name=None):
         self.claim = claim
         self.date = date
         self.multimodal = multimodal if not (multimodal and image_path is None) else False
@@ -65,9 +49,7 @@ class FactChecker:
             from datetime import datetime
             identifier = datetime.now().strftime("%Y%m%d%H%M%S")
         self.identifier = identifier
-        if model_name:
-            llm.set_default_ollama_model(model_name)
-        self.model_name = model_name or llm.get_default_ollama_model()
+        self.judge_model_name = judge_model_name or llm.get_default_ollama_model()
         report_writer.init_report(claim, identifier)
         self.report_path = report_writer.REPORT_PATH
         print(f"Initialized report at: {self.report_path}")
@@ -77,9 +59,8 @@ class FactChecker:
             "claim": self.claim,
             "date": self.date,
             "identifier": self.identifier,
-            "model": self.model_name,
+            "judge_model": self.judge_model_name,
             "actions": {},
-            "action_needed": [],
             "verdict": None,
             "justification": None,
             "report_path": self.report_path,
@@ -87,12 +68,7 @@ class FactChecker:
         }
         self._max_actions_in_memory = 5  # Limit actions stored in memory
         self.max_actions = max_actions
-        # Evidence Synthesis flag: read from env var if not provided, default to False (disabled)
-        if enable_evidence_synthesis is None:
-            enable_evidence_synthesis = os.getenv("ENABLE_EVIDENCE_SYNTHESIS", "false").lower() in ("true", "1", "yes")
-        self.enable_evidence_synthesis = enable_evidence_synthesis
-        if not self.enable_evidence_synthesis:
-            print("⚠️  Evidence Synthesis is DISABLED (for faster processing)")
+        
         self._report_lock = Lock()
         max_workers = min(8, (os.cpu_count() or 4))
         self._result_executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
@@ -390,7 +366,7 @@ class FactChecker:
                 planning_logs = []
                 with self._timers.track("planning"):
                     report_writer.log_step("Planning - Input", {"Claim": self.claim}, planning_logs)
-                    queries = planning.plan(self.claim, think=False)
+                    queries = planning.plan(self.claim)
                     queries_lines = [x.strip() for x in queries.split('\n') if x.strip()]
                     action_lines = ["web_search(\"" + line + "\")" for line in queries_lines if line]
                     
@@ -425,204 +401,30 @@ class FactChecker:
 
                 self.save_report_json()
 
-                iterations = 0
-                seen_action_lines = set(action_lines)
-                action_needed_conclusion = None
-                
-                # Skip Evidence Synthesis if disabled
-                if not self.enable_evidence_synthesis:
-                    print("⏭️  Skipping Evidence Synthesis (disabled)")
-                    synthesis_logs = []
-                    report_writer.log_step(
-                        "Evidence Synthesis - Skipped",
-                        {
-                            "Reason": "Evidence Synthesis is disabled",
-                            "Configuration": "Set ENABLE_EVIDENCE_SYNTHESIS=true to enable"
-                        },
-                        synthesis_logs
-                    )
-                    report_writer.append_pipeline_log("BƯỚC 5: EVIDENCE SYNTHESIS - SKIPPED", synthesis_logs)
-                    with self._report_lock:
-                        self.report["action_needed"].append("SKIPPED (disabled)")
-                    self.save_report_json()
-                else:
-                    # Evidence Synthesis is enabled
-                    while iterations <= 1:
-                        # Log evidence synthesis step
-                        synthesis_logs = []
-                        report_writer.log_step(
-                            f"Evidence Synthesis - Iteration {iterations + 1}",
-                            {
-                                "Input": "Current record with evidence",
-                                "Max chars": 3000
-                            },
-                            synthesis_logs
-                        )
-                        
-                        with self._timers.track(f"action_needed_iter_{iterations+1}"):
-                            # Use smaller trimmed record for faster processing
-                            action_needed = evidence_synthesis.develop(record=self.get_trimmed_record(max_chars=3000), think=False)
-
-                        report_writer.log_step(
-                            "Evidence Synthesis - Output",
-                            {
-                                "Action needed": action_needed,
-                                "Conclusion": "SUFFICIENT" if ('đã đủ bằng chứng' in action_needed.lower() or 'đủ bằng chứng' in action_needed.lower()) else "NEED_MORE"
-                            },
-                            synthesis_logs
-                        )
-                        
-                        # Append synthesis log to report
-                        report_writer.append_pipeline_log(f"BƯỚC 5: EVIDENCE SYNTHESIS - Iteration {iterations + 1}", synthesis_logs)
-                        
-                        print(f"Developed action_needed:\n{action_needed}")
-                        report_writer.append_action_needed(action_needed)
-
-                        with self._report_lock:
-                            self.report["action_needed"].append(action_needed)
-                        self.save_report_json()
-
-                        # Check if action_needed already concluded we have enough evidence
-                        action_needed_lower = action_needed.lower()
-                        if 'đã đủ bằng chứng' in action_needed_lower or 'đủ bằng chứng' in action_needed_lower:
-                            action_needed_conclusion = "SUFFICIENT"
-                            print("[action_needed] Early exit: Sufficient evidence found")
-                            break
-
-                        action_needed_action_lines = [x.strip() for x in action_needed.split('\n')]
-                        # Extract actions from format "TÌM KIẾM: <query>" (from dev-knhung)
-                        extracted_actions = []
-                        for line in action_needed_action_lines:
-                            if line.lower() == 'none':
-                                extracted_actions.append('NONE')
-                            elif 'TÌM KIẾM:' in line:
-                                # Find the position of "TÌM KIẾM:" and extract query after it
-                                idx = line.find('TÌM KIẾM:')
-                                if idx != -1:
-                                    query = line[idx + len('TÌM KIẾM:'):].strip()
-                                    extracted_actions.append("web_search(\"" + query + "\")")
-                        
-                        # Also check for standard action format (from HEAD)
-                        if not extracted_actions:
-                            action_needed_action_lines = [
-                                line for line in action_needed_action_lines if re.match(r'((\w+)_search\("([^"]+)"\)|NONE)', line, re.IGNORECASE)
-                            ]
-                        else:
-                            action_needed_action_lines = extracted_actions
-
-                        print(f"Extracted action_needed action lines: {action_needed_action_lines}")
-
-                        if not action_needed_action_lines or (
-                            len(action_needed_action_lines) == 1 and action_needed_action_lines[0].strip().lower() == 'none'
-                        ):
-                            break
-
-                        if any(line in seen_action_lines for line in action_needed_action_lines):
-                            print('Duplicate action line detected. Stopping iterations.')
-                            break
-
-                        seen_action_lines.update(action_needed_action_lines)
-
-                        with self._timers.track(f"action_needed_action_exec_{iterations+1}"):
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                list(executor.map(self.process_action_line, action_needed_action_lines))
-
-                        iterations += 1
-
+                # STEP 3: Verdict Judging
                 allowed_verdicts = {"Supported", "Refuted", "Not Enough Evidence"}
-                max_judge_tries = 3
-                judge_tries = 0
                 pred_verdict = ''
-                rules = RULES_PROMPT
                 verdict = None
-                
-                # If action_needed already concluded sufficient evidence, try to extract verdict from action_needed
                 evidence_info = None
-                if action_needed_conclusion == "SUFFICIENT":
-                    # Try to extract verdict directly from action_needed to skip expensive judge call
-                    action_needed_text = self.report["action_needed"][-1] if self.report["action_needed"] else ""
-                    if 'supported' in action_needed_text.lower() or 'hỗ trợ' in action_needed_text.lower():
-                        pred_verdict = "Supported"
-                        verdict = f"### Justification:\n{action_needed_text}\n\n### Verdict:\n`Supported`"
-                        print("[JUDGE] Skipped judge call, using action_needed conclusion: Supported")
-                        # Tạo evidence_info rỗng vì không gọi judge
-                        evidence_info = {
-                            "claim": self.claim,
-                            "total_evidence": 0,
-                            "filtered_evidence_count": 0,
-                            "selected_evidence_count": 0,
-                            "top_k": 6,
-                            "selected_evidence": [],
-                            "selected_scores": []
-                        }
-                
-                # If we don't have a verdict yet, call judge
-                evidence_info = None
-                if not verdict:
-                    while judge_tries < max_judge_tries:
-                        with self._timers.track(f"judge_try_{judge_tries+1}"):
-                            result = evaluation.judge(
-                                record=self.get_trimmed_record(max_chars=3000),
-                                decision_options="Supported|Refuted|Not Enough Evidence",
-                                rules=rules,
-                                think=False
-                            )
-                            # Judge now returns tuple (verdict_string, evidence_info)
-                            if isinstance(result, tuple) and len(result) == 2:
-                                verdict, evidence_info = result
-                            else:
-                                # Backward compatibility: if judge returns string only
-                                verdict = result
-                                evidence_info = None
-                        print(f"Judged verdict (try {judge_tries+1}):\n{verdict}")
-                        extracted_verdict = re.search(r'`(.*?)`', verdict, re.DOTALL)
-                        pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else ''
 
-                        if not extracted_verdict:
-                            extracted_verdict = re.search(r'\*\*(.*?)\*\*', verdict, re.DOTALL)
-                            if extracted_verdict:
-                                pred_verdict = extracted_verdict.group(1).strip()
-
-                        vi_to_en = {
-                            'có căn cứ': 'Supported',
-                            'được hỗ trợ': 'Supported',
-                            'được chứng minh': 'Supported',
-                            'bị bác bỏ': 'Refuted',
-                            'sai lệch': 'Refuted',
-                            'không đủ bằng chứng': 'Not Enough Evidence',
-                            'chưa đủ bằng chứng': 'Not Enough Evidence',
-                            'thiếu chứng cứ': 'Not Enough Evidence'
-                        }
-
-                        en_normalize = {
-                            'support': 'Supported',
-                            'supported': 'Supported',
-                            'refute': 'Refuted',
-                            'refuted': 'Refuted',
-                            'not enough': 'Not Enough Evidence',
-                            'not enough evidence': 'Not Enough Evidence',
-                            'insufficient evidence': 'Not Enough Evidence',
-                            'insufficient': 'Not Enough Evidence'
-                        }
-
-                        if pred_verdict.lower() in vi_to_en:
-                            pred_verdict = vi_to_en[pred_verdict.lower()]
-                        elif pred_verdict.lower() in en_normalize:
-                            pred_verdict = en_normalize[pred_verdict.lower()]
-
-                        if pred_verdict in allowed_verdicts:
-                            break
-                        judge_tries += 1
+                with self._timers.track(f"judging"):
+                    result = evaluation.judge(record=self.get_trimmed_record(max_chars=3000))
+                    # Judge now returns tuple (verdict_string, evidence_info)
+                    if isinstance(result, tuple) and len(result) == 2:
+                        verdict, evidence_info = result
+                    else:
+                        # Backward compatibility: if judge returns string only
+                        verdict = result
+                        evidence_info = None
+                print(f"Judged verdict:\n{verdict}")
+                extracted_verdict = re.search(r'`(.*?)`', verdict, re.DOTALL)
+                pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else ''
 
                 if pred_verdict not in allowed_verdicts:
                     print("No decision options found in verdict, using extract_verdict from judge.py...")
                     with self._timers.track("extract_verdict_fallback"):
                         try:
-                            extracted = evaluation.extract_verdict(
-                                conclusion=verdict,
-                                decision_options="Supported|Refuted|Not Enough Evidence",
-                                rules=rules
-                            )
+                            extracted = evaluation.extract_verdict(conclusion=verdict)
                             extracted_verdict = re.search(r'`(.*?)`', extracted, re.DOTALL)
                             pred_verdict = extracted_verdict.group(1).strip() if extracted_verdict else extracted.strip()
                             print(f"extract_verdict returned: {pred_verdict}")
@@ -635,7 +437,7 @@ class FactChecker:
                 if evidence_info:
                     # Ghi log quá trình filter evidence nếu có
                     if 'filter_log' in evidence_info:
-                        report_writer.append_pipeline_log("BƯỚC 6: EVIDENCE FILTERING & SELECTION", evidence_info['filter_log'])
+                        report_writer.append_pipeline_log("BƯỚC 5: EVIDENCE FILTERING & SELECTION", evidence_info['filter_log'])
                     report_writer.append_evidence_info(evidence_info)
                     
                     # Log judge step
@@ -657,7 +459,7 @@ class FactChecker:
                         },
                         judge_logs
                     )
-                    report_writer.append_pipeline_log("BƯỚC 7: JUDGE (Final Verdict)", judge_logs)
+                    report_writer.append_pipeline_log("BƯỚC 6: JUDGE (Final Verdict)", judge_logs)
                 
                 report_writer.append_verdict(pred_verdict)
                 report_writer.append_justification(verdict)
@@ -678,9 +480,9 @@ class FactChecker:
 
 # For backward compatibility, provide a function interface
 
-def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, expected_label=None, model_name=None, enable_evidence_synthesis=None):
+def factcheck(claim, date, identifier=None, multimodal=False, image_path=None, max_actions=2, judge_model_name=None):
     try:
-        checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, model_name=model_name, enable_evidence_synthesis=enable_evidence_synthesis)
+        checker = FactChecker(claim, date, identifier, multimodal, image_path, max_actions, judge_model_name=judge_model_name)
         verdict, report_path = checker.run()
         return verdict, report_path
     except ValueError as e:

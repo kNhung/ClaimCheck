@@ -3,15 +3,7 @@ import os
 from datetime import datetime
 import requests
 
-# Load environment variables from a .env file if python-dotenv is available
-try:
-    from dotenv import load_dotenv  # type: ignore
-    load_dotenv()
-except Exception:
-    # It's okay if python-dotenv isn't installed; we'll rely on real env vars.
-    pass
-
-def web_search(query, date, top_k=3, **kwargs):
+def web_search(query, date, top_k=3):
     """
     Fetches search results using the Serper API and extracts URLs and snippets.
 

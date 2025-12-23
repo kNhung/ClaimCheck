@@ -53,14 +53,6 @@ def append_raw(evidence):
     except Exception as e:
         print(f"Error appending evidence: {e}")
 
-def append_action_needed(action_needed):
-    try:
-        with open(REPORT_PATH, "a") as f:
-            f.write("### Action Needed\n\n")
-            f.write(action_needed.strip() + "\n\n")
-    except Exception as e:
-        print(f"Error appending action_needed: {e}")
-
 def append_verdict(verdict):
     try:
         with open(REPORT_PATH, "a") as f:
@@ -77,7 +69,7 @@ def append_justification(justification):
     except Exception as e:
         print(f"Error appending justification: {e}")
 
-def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, model_name=None, processing_time=None, clean_claim=None):
+def write_detailed_csv(claim, evidence, verdict, report_path, csv_path, expected_label=None, numeric_verdict=None, claim_id=None, judge_model_name=None, processing_time=None, clean_claim=None):
     """Writes detailed fact-checking results to a CSV file with fixed columns.
     Ensures a sample is only written once (skip if same report_path or id already present)."""
     try:
@@ -134,14 +126,13 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 'claim',
                 'clean_claim',
                 'evidence',
-                'reasoning',
                 'verdict',
                 'predicted_label',
                 'expected_label',
                 'compare',
                 'timestamp',
                 'report_path',
-                'model',
+                'judge_model',
                 'processing_time'
             ]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -149,21 +140,19 @@ def write_detailed_csv(claim, date, evidence, reasoning, verdict, justification,
                 writer.writeheader()
 
             evidence_clean = ' '.join(evidence.strip().split()) if evidence else ""
-            reasoning_clean = ' '.join(reasoning.strip().split()) if reasoning else ""
 
             writer.writerow({
                 'id': claim_id if claim_id is not None else "",
                 'claim': claim,
                 'clean_claim': clean_claim if clean_claim is not None else claim,
                 'evidence': evidence_clean,
-                'reasoning': reasoning_clean,
                 'verdict': verdict,
                 'predicted_label': pred_num if pred_num is not None else "",
                 'expected_label': label_num if label_num is not None else "",
                 'compare': 1 if (label_num is not None and pred_num is not None and label_num == pred_num) else 0,
                 'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 'report_path': report_path or "",
-                'model': model_name or "",
+                'judge_model': judge_model_name or "",
                 'processing_time': f"{processing_time:.2f}" if processing_time is not None else ""
             })
     except Exception as e:
@@ -229,9 +218,9 @@ def calculate_metrics(csv_path, avg_processing_time=None, total_processing_time=
             zero_division=0
         )
 
-        model_names = None
-        if 'model' in df.columns:
-            model_names = sorted({str(m).strip() for m in df['model'].dropna() if str(m).strip()})
+        judge_model_names = None
+        if 'judge_model' in df.columns:
+            judge_model_names = sorted({str(m).strip() for m in df['judge_model'].dropna() if str(m).strip()})
 
         metrics = {
             'accuracy': accuracy,
@@ -239,7 +228,7 @@ def calculate_metrics(csv_path, avg_processing_time=None, total_processing_time=
             'recall': recall,
             'f1': f1,
             'classification_report': class_report,
-            'model_names': model_names
+            'judge_model_names': judge_model_names
         }
 
         # Write metrics to metrics.txt next to the csv file
@@ -255,9 +244,9 @@ def calculate_metrics(csv_path, avg_processing_time=None, total_processing_time=
                 mf.write(f"F1-score (weighted): {metrics['f1']:.4f}\n")
                 mf.write("\nClassification report (per class):\n")
                 mf.write(metrics['classification_report'])
-                if model_names:
-                    mf.write("\n\nModels used:\n")
-                    mf.write(", ".join(model_names))
+                if judge_model_names:
+                    mf.write("\n\nJudge models used:\n")
+                    mf.write(", ".join(judge_model_names))
                 # Thêm thông tin thời gian
                 mf.write("\n\n" + "=" * 50 + "\n")
                 mf.write("THỐNG KÊ THỜI GIAN:\n")
@@ -285,10 +274,8 @@ def get_report_content():
         return None, None, None, None
         
     evidence = ""
-    action_needed = ""
     verdict = ""
     justification = ""
-    current_section = None
     
     try:
         with open(REPORT_PATH, 'r', encoding='utf-8') as f:
@@ -303,14 +290,12 @@ def get_report_content():
                     
                 if 'Evidence' in section:
                     evidence = section.replace('Evidence', '').strip()
-                elif 'action_needed' in section:
-                    action_needed = section.replace('action_needed', '').strip()
                 elif 'Verdict' in section:
                     verdict = section.replace('Verdict', '').strip()
                 elif 'Justification' in section:
                     justification = section.replace('Justification', '').strip()
                     
-        return evidence, action_needed, verdict, justification
+        return evidence, verdict, justification
         
     except Exception as e:
         print(f"Error reading report content: {e}")

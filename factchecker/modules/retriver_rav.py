@@ -1,5 +1,4 @@
 import os
-from functools import lru_cache
 from threading import Lock
 
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -7,10 +6,6 @@ import numpy as np
 import nltk
 # nltk.download('punkt')
 from nltk.tokenize import sent_tokenize
-import requests
-from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
-
-# dotenv.load_dotenv() is called in factchecker/__init__.py
 
 _EMBED_DEVICE_ENV = os.getenv("FACTCHECKER_EMBED_DEVICE")
 _BI_MODEL_NAME = os.getenv("FACTCHECKER_BI_ENCODER", "paraphrase-multilingual-MiniLM-L12-v2")

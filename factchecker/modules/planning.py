@@ -4,8 +4,6 @@ import re
 from underthesea import word_tokenize, pos_tag
 from typing import List, Tuple
 import os
-import dotenv
-dotenv.load_dotenv()
 
 import logging
 logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -508,7 +506,7 @@ def generate_queries_rule_based(claim: str, use_llm_for_long_claims: bool = True
     return queries[:3]  # Trả về tối đa 3 queries tốt nhất
 
 
-def plan(claim: str, think: bool = True, use_hybrid: bool = False, use_llm_for_long_claims: bool = True) -> str:
+def plan(claim: str, use_hybrid: bool = False, use_llm_for_long_claims: bool = True) -> str:
     """
     Tạo queries từ claim. Query đầu tiên là claim (nguyên vẹn nếu ngắn, hoặc rút ngắn bằng LLM nếu dài).
     

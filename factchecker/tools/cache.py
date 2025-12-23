@@ -3,7 +3,6 @@ import json
 import os
 from typing import Optional
 
-# dotenv.load_dotenv() is called in factchecker/__init__.py
 HOST = os.getenv('REDIS_HOST', 'localhost')
 PORT = int(os.getenv('REDIS_PORT', 6379))
 DB = int(os.getenv('REDIS_DB', 0))

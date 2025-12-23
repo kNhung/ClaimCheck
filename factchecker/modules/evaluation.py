@@ -13,8 +13,6 @@ from typing import List, Tuple, Dict
 from sentence_transformers import SentenceTransformer, CrossEncoder
 import os
 from . import llm
-import dotenv
-dotenv.load_dotenv()
 
 # Use same models as retriver_rav for consistency
 _EMBED_DEVICE_ENV = os.getenv("FACTCHECKER_EMBED_DEVICE")
@@ -220,7 +218,7 @@ def compute_evidence_scores(claim: str, evidence_pieces: List[str]) -> np.ndarra
     scores = cross_model.predict(pairs)
     return scores
 
-def extract_verdict(conclusion, decision_options, rules=""):
+def extract_verdict(conclusion):
     """
     Extract verdict from conclusion text (for compatibility).
     Uses simple regex matching instead of LLM.
@@ -705,9 +703,7 @@ JSON:
     return verdict_string, evidence_info
 
 
-def judge(record, decision_options, rules="", think=True,
-          use_attention: bool = True, use_neural_classifier: bool = True,
-          use_claim_context: bool = True, aggregator_type: str = "attention"):
+def judge(record):
     """
     Phiên bản judge mới:
     - Vẫn dùng retrieval từ web (evidence đã được thu thập ở bước trước).
