@@ -29,7 +29,7 @@ Hệ thống ClaimCheck được triển khai 2 thành phần chính:
 
 ---
 
-### Pipeline (Luồng xử lý nhanh)
+### Pipeline
 
 Tổng quan ngắn về luồng xử lý claim trong hệ thống và các file chính tương ứng:
 
