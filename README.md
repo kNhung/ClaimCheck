@@ -52,10 +52,7 @@ Tổng quan ngắn về luồng xử lý claim trong hệ thống và các file 
 - Bước 5. Retriever + Ranker (RAV): chunk hoá văn bản, embedding (bi-encoder) để lấy top-p, sau đó re-rank bằng cross-encoder lấy top-q evidence.
   - File chính: `factchecker/modules/retriver_rav.py`
 
-- Bước 6. Kiểm tra tính đầy đủ của bằng chứng (nếu enable): kiểm tra đã đủ bằng chứng chưa, nếu chưa thì đề xuất hành động để tìm thêm bằng chứng.
-  - File chính: `factchecker/modules/evidence_synthesis.py`
-
-- Bước 7. Judge (LLM): dùng model (Ollama / Gemini) để đưa ra verdict (Supported / Refuted / Not Enough Evidence) và giải thích.
+- Bước 6. Judge (LLM): dùng model (Ollama / Gemini) để đưa ra verdict (Supported / Refuted / Not Enough Evidence) và giải thích.
   - File chính:  `factchecker/modules/evaluation.py` (nếu cần chuẩn hoá input)
 
 - Orchestrator & Report: logic điều phối toàn bộ pipeline, logging và ghi report vào thư mục `reports/`.
@@ -83,9 +80,8 @@ sudo apt-get install docker-compose-plugin
 - Ubuntu/Debian:
 ```bash
 sudo apt update
-sudo apt install -y redis-server
-sudo systemctl enable --now redis-server
-sudo systemctl status redis-server
+sudo apt install redis-server
+sudo systemctl start redis-server
 ```
 
 - macOS (Homebrew):
