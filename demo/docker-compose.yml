@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # BACKEND SERVICE (FastAPI)
+  # ============================================
+  backend:
+    build:
+      # Build context là thư mục gốc (ClaimCheck/) vì cần truy cập requirements.txt và factchecker/
+      context: ..
+      # Dockerfile nằm trong thư mục demo
+      dockerfile: demo/Dockerfile.backend
+    container_name: claimcheck-backend
+    ports:
+      # Map port 8000 của container ra port 8000 của host
+      # Có thể truy cập backend trực tiếp tại http://localhost:8000
+      - "8000:8000"
+    environment:
+      # Các biến môi trường từ file .env (sẽ tạo ở bước sau)
+      - DEBUG=False
+      - HOST=0.0.0.0
+      - PORT=8000
+      - SERPER_API_KEY=${SERPER_API_KEY}
+      - FACTCHECKER_MODEL_NAME=${FACTCHECKER_MODEL_NAME:-qwen2.5:0.5b}
+      # Mặc định dùng CPU (an toàn trên mọi môi trường); file override GPU sẽ set lại thành cuda
+      - FACTCHECKER_EMBED_DEVICE=${FACTCHECKER_EMBED_DEVICE:-cpu}
+      - REPORTS_DIR=../reports
+    volumes:
+      # Mount thư mục reports từ host vào container
+      # Để lưu trữ các báo cáo fact-checking
+      - ../reports:/app/../reports
+    restart: unless-stopped
+    healthcheck:
+      # Kiểm tra sức khỏe của backend mỗi 30 giây
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # FRONTEND SERVICE (React + Nginx)
+  # ============================================
+  frontend:
+    build:
+      # Build context là thư mục demo (vì frontend code ở đây)
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: claimcheck-frontend
+    ports:
+      # Map port 80 của container ra port 80 của host
+      # Truy cập ứng dụng tại http://localhost
+      - "80:80"
+    depends_on:
+      # Frontend phụ thuộc vào backend (đợi backend khởi động trước)
+      - backend
+    restart: unless-stopped

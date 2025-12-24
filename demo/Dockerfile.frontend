@@ -1,0 +1,37 @@
+# ============================================
+# GIAI ĐOẠN 1: BUILD ỨNG DỤNG REACT
+# ============================================
+FROM node:20-alpine AS builder
+
+# Đặt thư mục làm việc
+WORKDIR /app
+
+# Copy package.json và package-lock.json
+COPY package*.json ./
+
+# Cài đặt dependencies (sử dụng npm ci thay vì npm install để đảm bảo chính xác)
+RUN npm ci
+
+# Copy toàn bộ source code frontend
+COPY . .
+
+# Build ứng dụng React thành static files
+# Kết quả sẽ nằm trong thư mục dist/
+RUN npm run build
+
+# ============================================
+# GIAI ĐOẠN 2: SERVE VỚI NGINX
+# ============================================
+FROM nginx:alpine
+
+# Copy các file đã build từ giai đoạn 1 vào thư mục web của Nginx
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copy file cấu hình Nginx (sẽ tạo ở bước sau)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Mở port 80 để Nginx lắng nghe
+EXPOSE 80
+
+# Chạy Nginx
+CMD ["nginx", "-g", "daemon off;"]

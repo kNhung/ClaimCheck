@@ -1,0 +1,44 @@
+# Sử dụng Python 3.11 làm base image
+FROM python:3.11-slim
+
+# Đặt thư mục làm việc trong container
+WORKDIR /app
+
+# Cài đặt các công cụ hệ thống cần thiết để build một số Python packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglx0 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip setuptools wheel
+# Copy file requirements.txt từ thư mục gốc
+# (Build context là thư mục gốc, nên không cần ../)
+COPY requirements.txt .
+# Cài đặt tất cả Python packages
+RUN pip install -r requirements.txt --upgrade-strategy only-if-needed
+
+# Copy code của ứng dụng backend
+# (Build context là thư mục gốc, nên đường dẫn là demo/app/)
+COPY demo/app/ ./app/
+# Copy module factchecker (cần thiết cho backend)
+COPY factchecker/ ../factchecker/
+
+# Tạo thư mục reports để lưu kết quả
+RUN mkdir -p ../reports
+
+# Thiết lập biến môi trường Python
+ENV PYTHONPATH=/app:/app/app:/app/..
+ENV PYTHONUNBUFFERED=1
+
+# Mở port 8000 để backend lắng nghe
+EXPOSE 8000
+
+# Chạy ứng dụng FastAPI với uvicorn
+# Sử dụng 4 workers để xử lý nhiều request đồng thời
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

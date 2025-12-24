@@ -1,8 +1,9 @@
 import json
+import os
 from datetime import datetime
 import requests
 
-def web_search(query, date, top_k=3, **kwargs):
+def web_search(query, date, top_k=3):
     """
     Fetches search results using the Serper API and extracts URLs and snippets.
 
@@ -29,9 +30,15 @@ def web_search(query, date, top_k=3, **kwargs):
         "tbs": f"cdr:1,cd_min:1/1/1900,cd_max:{end_date}"
     })
 
-    # Headers including the API key
+    # Read API key from environment (recommended: put it in a .env file as SERPER_API_KEY)
+    api_key = os.getenv('SERPER_API_KEY')
+    if not api_key:
+        raise RuntimeError(
+            "Missing SERPER_API_KEY. Set it as an environment variable or in a .env file."
+        )
+
     headers = {
-        'X-API-KEY': 'X-API-KEY',  # Replace with your Serper API key
+        'X-API-KEY': api_key,
         'Content-Type': 'application/json'
     }
 
