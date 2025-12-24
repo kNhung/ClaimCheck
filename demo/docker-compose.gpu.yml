@@ -12,3 +12,13 @@ services:
     environment:
       # Override mặc định CPU trong file chính để dùng GPU
       - FACTCHECKER_EMBED_DEVICE=cuda
+  
+  ollama:
+    # Bật GPU cho Ollama container để chạy models nhanh hơn
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ "gpu" ]
