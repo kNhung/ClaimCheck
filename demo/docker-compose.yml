@@ -99,12 +99,12 @@ services:
     image: redis:7
     container_name: claimcheck-redis
     ports:
-      - "6379:6379"  # optional: allows host access to Redis
-    command: ["redis-server","--save","","--appendonly","no","--maxmemory","500mb","--maxmemory-policy","allkeys-lru"]
+      - "6379:6379" # optional: allows host access to Redis
+    command: [ "redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "500mb", "--maxmemory-policy", "allkeys-lru" ]
     restart: unless-stopped
 
 volumes:
   # Volume để lưu trữ Ollama models và dữ liệu
   ollama_data:
-  # Volume (tùy chọn) để lưu dữ liệu Redis nếu cần persist
-  # redis_data:
+    # Volume (tùy chọn) để lưu dữ liệu Redis nếu cần persist
+    # redis_data:

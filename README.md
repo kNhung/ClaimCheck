@@ -223,7 +223,45 @@ Kết quả mong đợi:
 {"message": "healthy"}
 ```
 
-### Bước 7: Kiểm tra Redis Server
+### Bước 7: Tải Model Ollama
+
+Sau khi triển khai, cần tải các model Ollama vào container để hệ thống có thể sử dụng:
+
+#### Tải Model Qua Docker Exec
+
+```bash
+docker exec claimcheck-ollama ollama pull qwen2.5:0.5b
+
+docker exec claimcheck-ollama ollama pull qwen2.5:1.5b
+
+docker exec claimcheck-ollama ollama pull qwen2.5:3b
+```
+
+#### Kiểm Tra Models Đã Tải
+
+```bash
+# Xem danh sách models đã tải
+docker exec claimcheck-ollama ollama list
+
+# Hoặc qua API (nếu expose port)
+curl http://localhost:11435/api/tags
+```
+
+#### Cấu Hình Model Trong `.env`
+
+Sau khi tải model, cấu hình trong file `.env`:
+
+```bash
+# Model mặc định cho các bước LLM
+OLLAMA_MODEL_NAME=qwen2.5:0.5b
+
+# Model dành cho judging
+OLLAMA_JUDGE_MODEL=qwen2.5:3b
+```
+
+**Lưu ý:** Đảm bảo model bạn cấu hình trong `.env` đã được tải vào container Ollama. Nếu model chưa được tải, hệ thống sẽ báo lỗi khi chạy fact-checking.
+
+### Bước 8: Kiểm tra Redis Server
 Mở thêm 1 cửa sổ và chạy 
 ```bash
 redis-cli # Để mở cli
