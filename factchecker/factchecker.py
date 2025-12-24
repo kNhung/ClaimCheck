@@ -10,7 +10,8 @@ from .modules import planning, evaluation, retriver_rav, llm, claim_detection
 from .tools import web_search, web_scraper
 from .report import report_writer
 import fcntl
-
+import dotenv
+dotenv.load_dotenv()
 MAX_ACTIONS = int(os.getenv("FACTCHECKER_MAX_ACTIONS", "2"))
 
 LABEL_MAP = {

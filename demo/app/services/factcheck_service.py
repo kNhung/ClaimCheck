@@ -44,7 +44,7 @@ class FactCheckService:
         claim: str,
         date: str,
         max_actions: Optional[int] = None,
-        model_name: Optional[str] = None,
+        judge_model_name: Optional[str] = None,
         identifier: Optional[str] = None
     ) -> FactCheckResponse:
         """
@@ -54,7 +54,7 @@ class FactCheckService:
             claim: The claim to verify
             date: Cut-off date in DD-MM-YYYY format
             max_actions: Maximum number of search actions (defaults to config)
-            model_name: Ollama model name (defaults to config)
+            judge_model_name: Model to use for judging (defaults to config)
             identifier: Optional identifier for the report
             
         Returns:
@@ -65,7 +65,11 @@ class FactCheckService:
         """
         # Use defaults from config if not provided
         max_actions = max_actions or settings.FACTCHECKER_MAX_ACTIONS
-        model_name = model_name or settings.FACTCHECKER_MODEL_NAME
+        judge_provider = settings.FACTCHECKER_JUDGE_PROVIDER.lower()
+        if judge_provider == "gemini":
+            judge_model_name = settings.GEMINI_MODEL
+        else:  # default to ollama
+            judge_model_name = settings.OLLAMA_JUDGE_MODEL
         
         # Generate identifier if not provided
         if not identifier:
@@ -76,7 +80,7 @@ class FactCheckService:
         
         try:
             logger.info(f"Starting fact-check: claim='{claim[:50]}...', date={date}, identifier={identifier}")
-            logger.info(f"Using max_actions={max_actions}, model_name={model_name}")
+            logger.info(f"Using max_actions={max_actions}, judge_model_name={judge_model_name}")
             
             # Validate claim sớm (trước khi load models) để tiết kiệm thời gian
             try:
@@ -114,7 +118,7 @@ class FactCheckService:
                     date=date,
                     identifier=identifier,
                     max_actions=max_actions,
-                    model_name=model_name
+                    judge_model_name=judge_model_name
                 )
                 logger.info(f"Fact-check completed: verdict={verdict}, report_path={report_path}")
             except Exception as factcheck_err:
@@ -159,7 +163,7 @@ class FactCheckService:
                 report_path=report_path,
                 claim=claim,
                 date=date,
-                model=model_name
+                judge_model_name=judge_model_name
             )
         except ValueError as e:
             # Giữ nguyên ValueError để router có thể trả về HTTP 400

@@ -58,7 +58,7 @@ Tổng quan ngắn về luồng xử lý claim trong hệ thống và các file 
 - Orchestrator & Report: logic điều phối toàn bộ pipeline, logging và ghi report vào thư mục `reports/`.
   - File chính: `factchecker/factchecker.py` (điều phối) và `fact-check.py` (script runner để chạy batch)
 
-Ghi chú: các bước trên được ghi log chi tiết vào `factchecker/report/report_writer.py` và có thể tuỳ biến bằng biến môi trường (ví dụ `FACTCHECKER_MAX_ACTIONS`, `FACTCHECKER_MODEL_NAME`, `FACTCHECKER_EMBED_DEVICE`).
+Ghi chú: các bước trên được ghi log chi tiết vào `factchecker/report/report_writer.py` và có thể tuỳ biến bằng biến môi trường (ví dụ `FACTCHECKER_MAX_ACTIONS`, `FACTCHECKER_JUDGE_PROVIDER`, `FACTCHECKER_EMBED_DEVICE`).
 
 ### Cài Đặt Docker (nếu chưa có)
 ```bash
@@ -81,28 +81,16 @@ sudo apt-get install docker-compose-plugin
 ```bash
 sudo apt update
 sudo apt install redis-server
-sudo systemctl start redis-server
 ```
 
 - macOS (Homebrew):
 ```bash
 brew install redis
-brew services start redis
 ```
 
-- Chạy nhanh bằng Docker (mapping port 6379):
-```bash
-docker run -p 6379:6379 -d --name claimcheck-redis redis:7
-```
 
 - Lưu ý:
-  - Thư viện Python `redis` đã được liệt kê trong `requirements.txt`; đảm bảo service Redis đang chạy trước khi sử dụng cache.
-  - Khởi động Redis cục bộ:
-```bash
-redis-server
-# Hoặc chạy nền:
-redis-server --daemonize yes
-```
+  - `requirements.txt` chỉ chứa thư viện `redis` mà không có server, nên cần tải thêm server.
 
 - Tham số kết nối (env): `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, `REDIS_PASSWORD`.
 
@@ -118,6 +106,8 @@ Copy .env.example sang file `.env` trong thư mục gốc của project (`ClaimC
 cd /path/to/ClaimCheck
 cp .env.example .env
 ```
+
+Tạo `.env` tương tự trong `ClaimCheck/demo/`
 
 ### 2. Cấu Hình Các Biến Môi Trường
 
@@ -170,7 +160,7 @@ Xem file `.env.example` để biết đầy đủ các biến và mặc định.
 ### Bước 1: Clone Repository
 
 ```bash
-git clone https://github.com/idirlab/ClaimCheck.git
+git clone https://github.com/kNhung/ClaimCheck
 cd ClaimCheck
 ```
 
@@ -233,6 +223,13 @@ Kết quả mong đợi:
 {"message": "healthy"}
 ```
 
+### Bước 7: Kiểm tra Redis Server
+Mở thêm 1 cửa sổ và chạy 
+```bash
+redis-cli # Để mở cli
+KEYS scrape:* # Kiểm tra các link đã cache
+```
+
 ---
 
 ## Các lệnh thường dùng
@@ -288,3 +285,26 @@ docker compose -f docker-compose.yml ps
 # Test health endpoint
 curl http://localhost:8000/health
 ```
+---
+# Các lỗi thường gặp
+
+### "failed to bind host port 0.0.0.0:6379/tcp: address already in use"
+Dừng redis-server
+```bash
+sudo systemctl stop redis-server
+```
+Sau đó khởi động lại ứng dụng
+```bash
+docker compose -f docker-compose.yml up -d --build
+```
+
+### Khi mới deploy, kiểm chứng claim đầu lâu và hiện lỗi time out
+- Vì claim đầu tiên cần thời gian để tải, cần chờ thêm vài phút
+- Kiểm tra log
+``` bash
+docker compose -f docker-compose.yml logs -f
+```
+- Sau khi chờ 1 vài phút, hệ thống sẽ tiếp tục chạy, nhưng kết quả đầu tiên này sẽ không được hiện trên giao diện. Tiếp tục chạy từ claim thứ 2 sẽ ổn định.
+
+### Chạy sai model so với .env
+- Điền các biến tương ứng từ `.env` vào `demo/app/core/config.py`

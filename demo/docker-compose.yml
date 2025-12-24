@@ -21,10 +21,22 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - SERPER_API_KEY=${SERPER_API_KEY}
-      - FACTCHECKER_MODEL_NAME=${FACTCHECKER_MODEL_NAME:-qwen2.5:0.5b}
+      - FACTCHECKER_BI_ENCODER=${FACTCHECKER_BI_ENCODER}
+      - FACTCHECKER_CROSS_ENCODER=${FACTCHECKER_CROSS_ENCODER}
+      - FACTCHECKER_JUDGE_PROVIDER=${FACTCHECKER_JUDGE_PROVIDER}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL}
+      - OLLAMA_JUDGE_MODEL=${OLLAMA_JUDGE_MODEL}
+      - OLLAMA_MODEL_NAME=${OLLAMA_MODEL_NAME}
+      - FACTCHECKER_MAX_ACTIONS=${FACTCHECKER_MAX_ACTIONS:-2}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       # Mặc định dùng CPU (an toàn trên mọi môi trường); file override GPU sẽ set lại thành cuda
       - FACTCHECKER_EMBED_DEVICE=${FACTCHECKER_EMBED_DEVICE:-cpu}
       - REPORTS_DIR=../reports
+
     volumes:
       # Mount thư mục reports từ host vào container
       # Để lưu trữ các báo cáo fact-checking
@@ -54,3 +66,16 @@ services:
       # Frontend phụ thuộc vào backend (đợi backend khởi động trước)
       - backend
     restart: unless-stopped
+
+  # ============================================
+  # REDIS CACHE SERVICE (ephemeral, no persistence)
+  # ============================================
+  redis:
+    image: redis:7
+    container_name: claimcheck-redis
+    ports:
+      - "6379:6379"  # optional: allows host access to Redis
+    command: ["redis-server","--save","","--appendonly","no","--maxmemory","500mb","--maxmemory-policy","allkeys-lru"]
+    restart: unless-stopped
+
+# Note: no volumes defined for Redis so cached data is ephemeral by default
