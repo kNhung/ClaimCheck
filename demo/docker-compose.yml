@@ -2,6 +2,27 @@ version: '3.8'
 
 services:
   # ============================================
+  # OLLAMA SERVICE
+  # ============================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: claimcheck-ollama
+    # Không expose port ra host vì backend kết nối qua Docker network
+    # Nếu cần truy cập từ host, có thể uncomment dòng dưới (nhưng cần dừng Ollama trên host trước)
+    # ports:
+    #   - "11435:11434"  # Dùng port khác để tránh conflict
+    volumes:
+      # Lưu trữ models và dữ liệu Ollama
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      # Kiểm tra sức khỏe của Ollama
+      test: [ "CMD", "curl", "-f", "http://localhost:11434/api/tags" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
   # BACKEND SERVICE (FastAPI)
   # ============================================
   backend:
@@ -21,14 +42,30 @@ services:
       - HOST=0.0.0.0
       - PORT=8000
       - SERPER_API_KEY=${SERPER_API_KEY}
-      - FACTCHECKER_MODEL_NAME=${FACTCHECKER_MODEL_NAME:-qwen2.5:0.5b}
+      - FACTCHECKER_BI_ENCODER=${FACTCHECKER_BI_ENCODER}
+      - FACTCHECKER_CROSS_ENCODER=${FACTCHECKER_CROSS_ENCODER}
+      - FACTCHECKER_JUDGE_PROVIDER=${FACTCHECKER_JUDGE_PROVIDER}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL}
+      - OLLAMA_JUDGE_MODEL=${OLLAMA_JUDGE_MODEL}
+      - OLLAMA_MODEL_NAME=${OLLAMA_MODEL_NAME}
+      - FACTCHECKER_MAX_ACTIONS=${FACTCHECKER_MAX_ACTIONS:-2}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_DB=${REDIS_DB:-0}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       # Mặc định dùng CPU (an toàn trên mọi môi trường); file override GPU sẽ set lại thành cuda
       - FACTCHECKER_EMBED_DEVICE=${FACTCHECKER_EMBED_DEVICE:-cpu}
       - REPORTS_DIR=../reports
+      # Cấu hình Ollama host để kết nối qua Docker network
+      - OLLAMA_HOST=http://ollama:11434
     volumes:
       # Mount thư mục reports từ host vào container
       # Để lưu trữ các báo cáo fact-checking
       - ../reports:/app/../reports
+    depends_on:
+      # Backend phụ thuộc vào Ollama (đợi Ollama khởi động trước)
+      - ollama
     restart: unless-stopped
     healthcheck:
       # Kiểm tra sức khỏe của backend mỗi 30 giây
@@ -54,3 +91,20 @@ services:
       # Frontend phụ thuộc vào backend (đợi backend khởi động trước)
       - backend
     restart: unless-stopped
+
+  # ============================================
+  # REDIS CACHE SERVICE (ephemeral, no persistence)
+  # ============================================
+  redis:
+    image: redis:7
+    container_name: claimcheck-redis
+    ports:
+      - "6379:6379" # optional: allows host access to Redis
+    command: [ "redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "500mb", "--maxmemory-policy", "allkeys-lru" ]
+    restart: unless-stopped
+
+volumes:
+  # Volume để lưu trữ Ollama models và dữ liệu
+  ollama_data:
+    # Volume (tùy chọn) để lưu dữ liệu Redis nếu cần persist
+    # redis_data:

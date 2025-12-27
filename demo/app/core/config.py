@@ -10,7 +10,11 @@ class Settings(BaseModel):
     ALLOW_ORIGINS: List[str] = ["*"]
     
     # Fact Check settings
-    FACTCHECKER_MODEL_NAME: str = "qwen2.5:0.5b"
+    FACTCHECKER_JUDGE_PROVIDER: str = "gemini"  # Options: 'gemini', 'ollama'
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    OLLAMA_JUDGE_MODEL: str = "qwen2.5:1.5b"
+    OLLAMA_MODEL_NAME: str = "qwen2.5:0.5b"
     FACTCHECKER_MAX_ACTIONS: int = 2
     FACTCHECKER_EMBED_DEVICE: Optional[str] = None
     FACTCHECKER_BI_ENCODER: str = "paraphrase-multilingual-MiniLM-L12-v2"

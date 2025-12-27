@@ -18,7 +18,7 @@ const api = axios.create({
  * @param {string} data.claim - The claim to verify
  * @param {string} data.date - Cut-off date in DD-MM-YYYY format
  * @param {number} [data.max_actions] - Maximum number of search actions (optional)
- * @param {string} [data.model_name] - Model name (optional)
+ * @param {string} [data.judge_model_name] - Model name (optional)
  * @returns {Promise<Object>} Fact-check response
  */
 export const verifyClaim = async (data) => {

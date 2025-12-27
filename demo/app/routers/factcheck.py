@@ -35,7 +35,7 @@ async def verify_claim(request: FactCheckRequest):
             - claim: The claim to verify
             - date: Cut-off date (DD-MM-YYYY)
             - max_actions: Maximum search actions (optional)
-            - model_name: Ollama model name (optional)
+            - judge_model_name: Model to use for judging (optional)
     
     Returns:
         FactCheckResponse with:
@@ -59,7 +59,7 @@ async def verify_claim(request: FactCheckRequest):
             claim=request.claim,
             date=request.date,
             max_actions=request.max_actions,
-            model_name=request.model_name
+            judge_model_name=request.judge_model_name
         )
         logger.info(f"Fact-check completed: verdict={result.verdict}, report_id={result.report_id}")
         return result

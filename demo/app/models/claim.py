@@ -23,9 +23,9 @@ class FactCheckRequest(BaseModel):
         le=10,
         description="Maximum number of search actions to perform"
     )
-    model_name: Optional[str] = Field(
+    judge_model_name: Optional[str] = Field(
         default=None,
-        description="Ollama model name to use (e.g., 'qwen2.5:0.5b'). If not provided, uses default from config."
+        description="Model to use for judging (e.g., 'qwen2.5:0.5b'). If not provided, uses default from config."
     )
 
 
